@@ -157,6 +157,17 @@ func (c *Client) handleError(statusCode int, body []byte) error {
 	}
 }
 
+// SetToken updates the client's bearer token.
+// This is useful for OAuth clients that need to refresh tokens.
+func (c *Client) SetToken(token string) {
+	c.token = token
+}
+
+// Token returns the current bearer token.
+func (c *Client) Token() string {
+	return c.token
+}
+
 // get performs a GET request.
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	return c.do(ctx, http.MethodGet, path, nil)

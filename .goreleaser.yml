@@ -1,0 +1,48 @@
+version: 2
+project_name: smartthings-go
+
+# No builds - this is a library, not a CLI
+builds: []
+
+# Create source archive
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}-{{ .Version }}-source"
+    files:
+      - "*.go"
+      - "go.mod"
+      - "LICENSE"
+      - "README.md"
+      - "docs/**/*"
+      - "examples/**/*"
+
+# Generate changelog from commits
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix"
+      order: 1
+    - title: Others
+      order: 999
+
+# GitHub release
+release:
+  github:
+    owner: tj-smith47
+    name: smartthings-go
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"

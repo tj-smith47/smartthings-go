@@ -17,9 +17,9 @@ const (
 	tokenEndpoint         = "https://api.smartthings.com/oauth/token"
 
 	// Default scopes for SmartThings OAuth
-	defaultScopeDevicesRead     = "r:devices:*"
-	defaultScopeDevicesExecute  = "x:devices:*"
-	defaultScopeLocationsRead   = "r:locations:*"
+	defaultScopeDevicesRead    = "r:devices:*"
+	defaultScopeDevicesExecute = "x:devices:*"
+	defaultScopeLocationsRead  = "r:locations:*"
 
 	// tokenRefreshBuffer is how long before expiry we should refresh the token
 	tokenRefreshBuffer = 5 * time.Minute

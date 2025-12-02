@@ -4,27 +4,153 @@ package smartthings
 // The SmartThings API returns deeply nested JSON structures that vary by device type.
 type Status map[string]any
 
-// Device represents a SmartThings device.
+// DeviceType represents the type of device integration.
+type DeviceType string
+
+// Device type constants.
+const (
+	DeviceTypeDTH         DeviceType = "DTH"
+	DeviceTypeEndpointApp DeviceType = "ENDPOINT_APP"
+	DeviceTypeViper       DeviceType = "VIPER"
+	DeviceTypeHub         DeviceType = "HUB"
+	DeviceTypeBLE         DeviceType = "BLE"
+	DeviceTypeBLED2D      DeviceType = "BLE_D2D"
+	DeviceTypeMobile      DeviceType = "MOBILE"
+	DeviceTypeOCF         DeviceType = "OCF"
+	DeviceTypeLAN         DeviceType = "LAN"
+	DeviceTypeVideo       DeviceType = "VIDEO"
+)
+
+// Device represents a SmartThings device with all available API fields.
 type Device struct {
-	DeviceID         string      `json:"deviceId"`
-	Name             string      `json:"name"`
-	Label            string      `json:"label"`
-	ManufacturerName string      `json:"manufacturerName"`
-	PresentationID   string      `json:"presentationId"`
-	DeviceTypeID     string      `json:"deviceTypeId"`
-	Type             string      `json:"type"`
-	RoomID           string      `json:"roomId,omitempty"`
-	Components       []Component `json:"components"`
+	DeviceID               string           `json:"deviceId"`
+	Name                   string           `json:"name"`
+	Label                  string           `json:"label"`
+	ManufacturerName       string           `json:"manufacturerName,omitempty"`
+	PresentationID         string           `json:"presentationId,omitempty"`
+	DeviceTypeID           string           `json:"deviceTypeId,omitempty"`
+	Type                   DeviceType       `json:"type,omitempty"`
+	RoomID                 string           `json:"roomId,omitempty"`
+	LocationID             string           `json:"locationId,omitempty"`
+	ParentDeviceID         string           `json:"parentDeviceId,omitempty"`
+	ChildDevices           []ChildDevice    `json:"childDevices,omitempty"`
+	Components             []Component      `json:"components,omitempty"`
+	Profile                *DeviceProfile   `json:"profile,omitempty"`
+	App                    *DeviceApp       `json:"app,omitempty"`
+	OCF                    *OCFDeviceInfo   `json:"ocf,omitempty"`
+	Viper                  *ViperDeviceInfo `json:"viper,omitempty"`
+	DeviceManufacturerCode string           `json:"deviceManufacturerCode,omitempty"`
+	CreateTime             string           `json:"createTime,omitempty"`
+	RestrictionTier        int              `json:"restrictionTier,omitempty"`
+	Allowed                []string         `json:"allowed,omitempty"`
+}
+
+// ChildDevice represents a reference to a child device.
+type ChildDevice struct {
+	DeviceID string `json:"deviceId"`
+}
+
+// DeviceProfile references a device profile.
+type DeviceProfile struct {
+	ID string `json:"id"`
+}
+
+// DeviceApp references the installed app for the device.
+type DeviceApp struct {
+	InstalledAppID string         `json:"installedAppId"`
+	ExternalID     string         `json:"externalId,omitempty"`
+	Profile        *DeviceProfile `json:"profile,omitempty"`
+}
+
+// OCFDeviceInfo contains OCF (Open Connectivity Foundation) device information.
+type OCFDeviceInfo struct {
+	DeviceID                  string `json:"ocfDeviceId,omitempty"`
+	Name                      string `json:"name,omitempty"`
+	SpecVersion               string `json:"specVersion,omitempty"`
+	VerticalDomainSpecVersion string `json:"verticalDomainSpecVersion,omitempty"`
+	ManufacturerName          string `json:"manufacturerName,omitempty"`
+	ModelNumber               string `json:"modelNumber,omitempty"`
+	PlatformVersion           string `json:"platformVersion,omitempty"`
+	PlatformOS                string `json:"platformOS,omitempty"`
+	HwVersion                 string `json:"hwVersion,omitempty"`
+	FirmwareVersion           string `json:"firmwareVersion,omitempty"`
+	VendorID                  string `json:"vendorId,omitempty"`
+}
+
+// ViperDeviceInfo contains Viper (Samsung Connect) device information.
+type ViperDeviceInfo struct {
+	UniqueID        string `json:"uniqueIdentifier,omitempty"`
+	MACAddress      string `json:"macAddress,omitempty"`
+	HubID           string `json:"hubId,omitempty"`
+	ProvisionedTime string `json:"provisionedTime,omitempty"`
 }
 
 // Component represents a device component (e.g., "main", "cooler", "freezer").
 type Component struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	ID           string           `json:"id"`
+	Label        string           `json:"label,omitempty"`
+	Capabilities []CapabilityRef  `json:"capabilities,omitempty"`
+	Categories   []DeviceCategory `json:"categories,omitempty"`
+	Icon         string           `json:"icon,omitempty"`
+}
+
+// CapabilityRef references a capability with its version.
+type CapabilityRef struct {
+	ID      string `json:"id"`
+	Version int    `json:"version,omitempty"`
+}
+
+// DeviceCategory describes a device's category.
+type DeviceCategory struct {
+	Name         string `json:"name"`
+	CategoryType string `json:"categoryType,omitempty"`
+}
+
+// DeviceHealth represents the health status of a device.
+type DeviceHealth struct {
+	DeviceID        string `json:"deviceId"`
+	State           string `json:"state"` // ONLINE, OFFLINE, UNKNOWN
+	LastUpdatedDate string `json:"lastUpdatedDate,omitempty"`
+}
+
+// DeviceUpdate is the request body for updating a device.
+type DeviceUpdate struct {
+	Label string `json:"label,omitempty"`
+}
+
+// PageInfo contains pagination information from API responses.
+type PageInfo struct {
+	TotalPages   int `json:"totalPages,omitempty"`
+	TotalResults int `json:"totalResults,omitempty"`
+	CurrentPage  int `json:"currentPage,omitempty"`
+}
+
+// Links contains pagination links from API responses.
+type Links struct {
+	Next     string `json:"next,omitempty"`
+	Previous string `json:"previous,omitempty"`
+}
+
+// ListDevicesOptions contains options for listing devices with pagination and filtering.
+type ListDevicesOptions struct {
+	Capability        []string // Filter by capability
+	LocationID        []string // Filter by location
+	DeviceID          []string // Filter by device IDs
+	Type              string   // Filter by device type
+	Max               int      // Max results per page (1-200, default 200)
+	Page              int      // Page number (0-based)
+	IncludeRestricted bool     // Include restricted devices
+}
+
+// PagedDevices is the response from ListDevicesWithOptions.
+type PagedDevices struct {
+	Items    []Device `json:"items"`
+	Links    Links    `json:"_links,omitempty"`
+	PageInfo PageInfo `json:"_page,omitempty"`
 }
 
 // DeviceListResponse is the response from the list devices API.
+// Deprecated: Use PagedDevices instead for pagination support.
 type DeviceListResponse struct {
 	Items []Device `json:"items"`
 }

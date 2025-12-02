@@ -13,20 +13,48 @@ var (
 	ErrEmptyToken   = errors.New("smartthings: API token cannot be empty")
 
 	// Resource errors
-	ErrNotFound      = errors.New("smartthings: device not found")
+	ErrNotFound      = errors.New("smartthings: resource not found")
 	ErrDeviceOffline = errors.New("smartthings: device is offline")
 
 	// Rate limiting
 	ErrRateLimited = errors.New("smartthings: rate limited (too many requests)")
 
-	// Input validation errors
+	// Device validation errors
 	ErrEmptyDeviceID    = errors.New("smartthings: device ID cannot be empty")
 	ErrEmptyComponentID = errors.New("smartthings: component ID cannot be empty")
-	ErrEmptyInputID     = errors.New("smartthings: input ID cannot be empty")
-	ErrEmptyKey         = errors.New("smartthings: key cannot be empty")
-	ErrEmptyAppID       = errors.New("smartthings: app ID cannot be empty")
-	ErrEmptyMode        = errors.New("smartthings: mode cannot be empty")
-	ErrInvalidChannel   = errors.New("smartthings: channel must be non-negative")
+
+	// TV/media validation errors
+	ErrEmptyInputID   = errors.New("smartthings: input ID cannot be empty")
+	ErrEmptyKey       = errors.New("smartthings: key cannot be empty")
+	ErrEmptyAppID     = errors.New("smartthings: app ID cannot be empty")
+	ErrEmptyMode      = errors.New("smartthings: mode cannot be empty")
+	ErrInvalidChannel = errors.New("smartthings: channel must be non-negative")
+
+	// Location validation errors
+	ErrEmptyLocationID   = errors.New("smartthings: location ID cannot be empty")
+	ErrEmptyLocationName = errors.New("smartthings: location name cannot be empty")
+
+	// Room validation errors
+	ErrEmptyRoomID   = errors.New("smartthings: room ID cannot be empty")
+	ErrEmptyRoomName = errors.New("smartthings: room name cannot be empty")
+
+	// Scene validation errors
+	ErrEmptySceneID = errors.New("smartthings: scene ID cannot be empty")
+
+	// Rule validation errors
+	ErrEmptyRuleID   = errors.New("smartthings: rule ID cannot be empty")
+	ErrEmptyRuleName = errors.New("smartthings: rule name cannot be empty")
+
+	// Schedule validation errors
+	ErrEmptyScheduleName = errors.New("smartthings: schedule name cannot be empty")
+
+	// InstalledApp/Subscription validation errors
+	ErrEmptyInstalledAppID = errors.New("smartthings: installed app ID cannot be empty")
+	ErrEmptySubscriptionID = errors.New("smartthings: subscription ID cannot be empty")
+	ErrInvalidSubscription = errors.New("smartthings: invalid subscription configuration")
+
+	// Capability validation errors
+	ErrEmptyCapabilityID = errors.New("smartthings: capability ID cannot be empty")
 )
 
 // APIError represents an error response from the SmartThings API.

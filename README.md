@@ -1,6 +1,6 @@
 # smartthings-go
 
-A Go client library for the Samsung SmartThings API.
+A comprehensive Go client library for the Samsung SmartThings API.
 
 ## Installation
 
@@ -44,42 +44,100 @@ func main() {
 
 ## Features
 
-- Full SmartThings API v1 support
-- Device listing and status retrieval
-- Command execution
-- TV control (power, volume, input, apps, picture/sound modes)
-- Appliance status extraction (washer, dryer, dishwasher, range, refrigerator)
-- Helper functions for navigating nested JSON responses
-- Proper error handling with typed errors
+- **Full SmartThings API v1 support**
+- **OAuth 2.0 authentication** with automatic token refresh
+- **Device management** - list, get, update, delete, execute commands
+- **Locations & Rooms** - CRUD operations for organization
+- **Scenes** - list and execute scenes
+- **Automation Rules** - CRUD operations for rules
+- **Schedules** - cron-based scheduling
+- **Subscriptions** - webhook management
+- **Capabilities** - capability introspection
+- **Pagination support** for large datasets
+- **Automatic retry** with configurable backoff
+- **TV control** (power, volume, input, apps, picture/sound modes)
+- **Appliance status** extraction (washer, dryer, dishwasher, range, refrigerator)
+
+## Authentication Methods
+
+### Personal Access Token
+
+Get a token from [SmartThings Tokens](https://account.smartthings.com/tokens):
+
+```go
+client, err := st.NewClient("your-personal-access-token")
+```
+
+### OAuth 2.0
+
+For apps that need to access other users' devices:
+
+```go
+// 1. Configure OAuth
+config := &st.OAuthConfig{
+    ClientID:     "your-client-id",
+    ClientSecret: "your-client-secret",
+    RedirectURL:  "https://your-app.com/callback",
+    Scopes:       st.DefaultScopes(), // r:devices:*, x:devices:*, r:locations:*
+}
+
+// 2. Create token store (file-based or in-memory)
+store := st.NewFileTokenStore("/path/to/tokens.json")
+
+// 3. Create OAuth client
+client, err := st.NewOAuthClient(config, store)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 4. Check if user needs to authenticate
+if client.NeedsReauthentication() {
+    state := generateSecureRandomState()
+    authURL := client.GetAuthorizationURL(state)
+    // Redirect user to authURL...
+}
+
+// 5. In your callback handler, exchange the code
+func handleCallback(code string) error {
+    return client.ExchangeCode(ctx, code)
+}
+
+// 6. Use the client - tokens refresh automatically
+devices, err := client.ListDevices(ctx)
+```
 
 ## API Usage
 
-### Client Creation
+### Client Options
 
 ```go
 // Basic client
 client, err := st.NewClient("your-token")
-if err != nil {
-    log.Fatal(err)
-}
 
 // With options
 client, err := st.NewClient("your-token",
     st.WithTimeout(60 * time.Second),
+    st.WithRetry(st.DefaultRetryConfig()),
     st.WithBaseURL("https://custom-api.example.com"),
 )
-if err != nil {
-    log.Fatal(err)
-}
 ```
 
 ### Device Operations
 
 ```go
-ctx := context.Background()
-
 // List all devices
 devices, err := client.ListDevices(ctx)
+
+// List with pagination and filtering
+paged, err := client.ListDevicesWithOptions(ctx, &st.ListDevicesOptions{
+    Capability: []string{"switch"},
+    LocationID: []string{"location-id"},
+    Max:        100,
+    Page:       0,
+})
+
+// Get all devices with automatic pagination
+allDevices, err := client.ListAllDevices(ctx)
 
 // Get a specific device
 device, err := client.GetDevice(ctx, "device-id")
@@ -87,8 +145,14 @@ device, err := client.GetDevice(ctx, "device-id")
 // Get device status (main component)
 status, err := client.GetDeviceStatus(ctx, "device-id")
 
-// Get full status (all components)
-allStatus, err := client.GetDeviceStatusAllComponents(ctx, "device-id")
+// Get device health
+health, err := client.GetDeviceHealth(ctx, "device-id")
+
+// Update device label
+updated, err := client.UpdateDevice(ctx, "device-id", &st.DeviceUpdate{Label: "New Name"})
+
+// Delete device
+err := client.DeleteDevice(ctx, "device-id")
 
 // Execute a command
 err := client.ExecuteCommand(ctx, "device-id", st.NewCommand("switch", "on"))
@@ -100,19 +164,96 @@ err := client.ExecuteCommands(ctx, "device-id", []st.Command{
 })
 ```
 
+### Locations & Rooms
+
+```go
+// List locations
+locations, err := client.ListLocations(ctx)
+
+// Create a location
+loc, err := client.CreateLocation(ctx, &st.LocationCreate{
+    Name:        "Home",
+    CountryCode: "US",
+    TimeZoneID:  "America/New_York",
+})
+
+// List rooms in a location
+rooms, err := client.ListRooms(ctx, locationID)
+
+// Create a room
+room, err := client.CreateRoom(ctx, locationID, &st.RoomCreate{Name: "Living Room"})
+```
+
+### Scenes
+
+```go
+// List scenes
+scenes, err := client.ListScenes(ctx, locationID)
+
+// Execute a scene
+err := client.ExecuteScene(ctx, sceneID)
+```
+
+### Automation Rules
+
+```go
+// List rules
+rules, err := client.ListRules(ctx, locationID)
+
+// Create a rule
+rule, err := client.CreateRule(ctx, locationID, &st.RuleCreate{
+    Name: "Turn on lights at sunset",
+    Actions: []st.RuleAction{
+        // Rule definition...
+    },
+})
+
+// Execute a rule manually
+err := client.ExecuteRule(ctx, ruleID)
+```
+
+### Subscriptions (Webhooks)
+
+```go
+// List subscriptions
+subs, err := client.ListSubscriptions(ctx, installedAppID)
+
+// Create a device subscription
+sub, err := client.CreateSubscription(ctx, installedAppID, &st.SubscriptionCreate{
+    SourceType: "DEVICE",
+    Device: &st.DeviceSubscription{
+        DeviceID:   "device-id",
+        Capability: "switch",
+        Attribute:  "switch",
+    },
+})
+
+// Delete all subscriptions
+err := client.DeleteAllSubscriptions(ctx, installedAppID)
+```
+
+### Capabilities
+
+```go
+// List all capabilities
+caps, err := client.ListCapabilities(ctx)
+
+// Get capability definition
+cap, err := client.GetCapability(ctx, "switch", 1)
+```
+
 ### TV Control
 
 ```go
 // Get TV status
 status, err := client.FetchTVStatus(ctx, tvDeviceID)
-fmt.Printf("Power: %s, Volume: %d, Input: %s\n",
-    status.Power, status.Volume, status.InputSource)
+fmt.Printf("Power: %s, Volume: %d\n", status.Power, status.Volume)
 
 // Control TV
-client.SetTVPower(ctx, tvDeviceID, true)       // Turn on
-client.SetTVVolume(ctx, tvDeviceID, 25)        // Set volume
-client.SetTVMute(ctx, tvDeviceID, true)        // Mute
-client.SetTVInput(ctx, tvDeviceID, "HDMI1")    // Change input
+client.SetTVPower(ctx, tvDeviceID, true)
+client.SetTVVolume(ctx, tvDeviceID, 25)
+client.SetTVMute(ctx, tvDeviceID, true)
+client.SetTVInput(ctx, tvDeviceID, "HDMI1")
 
 // Remote control
 client.SendTVKey(ctx, tvDeviceID, "UP")
@@ -147,17 +288,9 @@ if rangeStatus.OvenActive {
     fmt.Printf("Oven: %d°F (target: %d°F)\n",
         *rangeStatus.OvenTemp, *rangeStatus.OvenTargetTemp)
 }
-
-// Get refrigerator status (requires full component status)
-allStatus, _ := client.GetDeviceStatusAllComponents(ctx, fridgeDeviceID)
-fridgeStatus := st.ExtractRefrigeratorStatus(allStatus)
-fmt.Printf("Fridge: %d°F, Freezer: %d°F\n",
-    *fridgeStatus.FridgeTemp, *fridgeStatus.FreezerTemp)
 ```
 
 ### Helper Functions
-
-The library provides helper functions for navigating deeply nested JSON responses:
 
 ```go
 status, _ := client.GetDeviceStatus(ctx, deviceID)
@@ -166,20 +299,12 @@ status, _ := client.GetDeviceStatus(ctx, deviceID)
 power, ok := st.GetString(status, "switch", "switch", "value")
 volume, ok := st.GetInt(status, "audioVolume", "volume", "value")
 temp, ok := st.GetFloat(status, "temperatureMeasurement", "temperature", "value")
-muted, ok := st.GetBool(status, "audioMute", "mute", "value")
-
-// Navigate to nested maps
-main, ok := st.GetMap(status, "main")
-
-// Extract arrays
-inputs, ok := st.GetArray(status, "mediaInputSource", "supportedInputSources", "value")
 
 // Check string equality
 isOn := st.GetStringEquals(status, "on", "switch", "switch", "value")
 
 // Temperature conversion
 fahrenheit := st.CelsiusToFahrenheit(celsius)
-celsius := st.FahrenheitToCelsius(fahrenheit)
 ```
 
 ## Error Handling
@@ -193,8 +318,11 @@ if err != nil {
         // Device doesn't exist
     } else if st.IsRateLimited(err) {
         // Too many requests
+    } else if st.IsDeviceOffline(err) {
+        // Device is offline
+    } else if st.IsTimeout(err) {
+        // Request timed out
     } else {
-        // Other API error
         var apiErr *st.APIError
         if errors.As(err, &apiErr) {
             fmt.Printf("API Error %d: %s\n", apiErr.StatusCode, apiErr.Message)
@@ -203,10 +331,26 @@ if err != nil {
 }
 ```
 
+## Testing
+
+The library provides a `SmartThingsClient` interface for mocking:
+
+```go
+type SmartThingsClient interface {
+    ListDevices(ctx context.Context) ([]Device, error)
+    GetDevice(ctx context.Context, deviceID string) (*Device, error)
+    // ... all other methods
+}
+
+// Both Client and OAuthClient implement this interface
+var _ SmartThingsClient = (*Client)(nil)
+var _ SmartThingsClient = (*OAuthClient)(nil)
+```
+
 ## SmartThings API Reference
 
 - Base URL: `https://api.smartthings.com/v1`
-- [API Documentation](https://developer-preview.smartthings.com/docs/api/public/)
+- [API Documentation](https://developer.smartthings.com/docs/api/public/)
 - [Getting an API Token](https://account.smartthings.com/tokens)
 
 ## License

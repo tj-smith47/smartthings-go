@@ -31,8 +31,8 @@ func TestGetAuthorizationURL(t *testing.T) {
 				"redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback",
 				"state=test-state",
 				"response_type=code",
-				"r%3Adevices%3A%2A", // r:devices:*
-				"x%3Adevices%3A%2A", // x:devices:*
+				"r%3Adevices%3A%2A",   // r:devices:*
+				"x%3Adevices%3A%2A",   // x:devices:*
 				"r%3Alocations%3A%2A", // r:locations:*
 			},
 		},

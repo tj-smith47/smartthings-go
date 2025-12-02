@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
 )
 
 // truncatePreview returns a truncated string for error messages.
@@ -16,6 +18,7 @@ func truncatePreview(data []byte) string {
 }
 
 // ListDevices returns all devices associated with the account.
+// For pagination support, use ListDevicesWithOptions instead.
 func (c *Client) ListDevices(ctx context.Context) ([]Device, error) {
 	data, err := c.get(ctx, "/devices")
 	if err != nil {
@@ -28,6 +31,75 @@ func (c *Client) ListDevices(ctx context.Context) ([]Device, error) {
 	}
 
 	return resp.Items, nil
+}
+
+// ListDevicesWithOptions returns devices with pagination and filtering options.
+func (c *Client) ListDevicesWithOptions(ctx context.Context, opts *ListDevicesOptions) (*PagedDevices, error) {
+	path := "/devices"
+	if opts != nil {
+		params := url.Values{}
+		for _, cap := range opts.Capability {
+			params.Add("capability", cap)
+		}
+		for _, loc := range opts.LocationID {
+			params.Add("locationId", loc)
+		}
+		for _, id := range opts.DeviceID {
+			params.Add("deviceId", id)
+		}
+		if opts.Type != "" {
+			params.Set("type", opts.Type)
+		}
+		if opts.Max > 0 {
+			params.Set("max", strconv.Itoa(opts.Max))
+		}
+		if opts.Page > 0 {
+			params.Set("page", strconv.Itoa(opts.Page))
+		}
+		if opts.IncludeRestricted {
+			params.Set("includeRestricted", "true")
+		}
+		if encoded := params.Encode(); encoded != "" {
+			path += "?" + encoded
+		}
+	}
+
+	data, err := c.get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp PagedDevices
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse device list: %w (body: %s)", err, truncatePreview(data))
+	}
+
+	return &resp, nil
+}
+
+// ListAllDevices retrieves all devices by automatically handling pagination.
+func (c *Client) ListAllDevices(ctx context.Context) ([]Device, error) {
+	var allDevices []Device
+	page := 0
+
+	for {
+		resp, err := c.ListDevicesWithOptions(ctx, &ListDevicesOptions{
+			Max:  200,
+			Page: page,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		allDevices = append(allDevices, resp.Items...)
+
+		if resp.Links.Next == "" || len(resp.Items) == 0 {
+			break
+		}
+		page++
+	}
+
+	return allDevices, nil
 }
 
 // GetDevice returns a single device by ID.
@@ -145,6 +217,53 @@ func (c *Client) ExecuteCommands(ctx context.Context, deviceID string, cmds []Co
 	req := CommandRequest{Commands: cmds}
 	_, err := c.post(ctx, "/devices/"+deviceID+"/commands", req)
 	return err
+}
+
+// DeleteDevice deletes a device.
+func (c *Client) DeleteDevice(ctx context.Context, deviceID string) error {
+	if deviceID == "" {
+		return ErrEmptyDeviceID
+	}
+	_, err := c.delete(ctx, "/devices/"+deviceID)
+	return err
+}
+
+// UpdateDevice updates a device (currently only the label can be updated).
+func (c *Client) UpdateDevice(ctx context.Context, deviceID string, update *DeviceUpdate) (*Device, error) {
+	if deviceID == "" {
+		return nil, ErrEmptyDeviceID
+	}
+
+	data, err := c.put(ctx, "/devices/"+deviceID, update)
+	if err != nil {
+		return nil, err
+	}
+
+	var device Device
+	if err := json.Unmarshal(data, &device); err != nil {
+		return nil, fmt.Errorf("failed to parse updated device: %w (body: %s)", err, truncatePreview(data))
+	}
+
+	return &device, nil
+}
+
+// GetDeviceHealth returns the health status of a device.
+func (c *Client) GetDeviceHealth(ctx context.Context, deviceID string) (*DeviceHealth, error) {
+	if deviceID == "" {
+		return nil, ErrEmptyDeviceID
+	}
+
+	data, err := c.get(ctx, "/devices/"+deviceID+"/health")
+	if err != nil {
+		return nil, err
+	}
+
+	var health DeviceHealth
+	if err := json.Unmarshal(data, &health); err != nil {
+		return nil, fmt.Errorf("failed to parse device health: %w (body: %s)", err, truncatePreview(data))
+	}
+
+	return &health, nil
 }
 
 // NewCommand creates a command with the given capability and command name.

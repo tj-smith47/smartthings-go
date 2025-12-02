@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,11 +19,34 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
+// RetryConfig configures automatic retry behavior for transient failures.
+type RetryConfig struct {
+	// MaxRetries is the maximum number of retry attempts (default: 3).
+	MaxRetries int
+	// InitialBackoff is the initial backoff duration (default: 100ms).
+	InitialBackoff time.Duration
+	// MaxBackoff is the maximum backoff duration (default: 5s).
+	MaxBackoff time.Duration
+	// Multiplier is the backoff multiplier (default: 2.0).
+	Multiplier float64
+}
+
+// DefaultRetryConfig returns sensible retry defaults.
+func DefaultRetryConfig() *RetryConfig {
+	return &RetryConfig{
+		MaxRetries:     3,
+		InitialBackoff: 100 * time.Millisecond,
+		MaxBackoff:     5 * time.Second,
+		Multiplier:     2.0,
+	}
+}
+
 // Client is a SmartThings API client.
 type Client struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
+	baseURL     string
+	token       string
+	httpClient  *http.Client
+	retryConfig *RetryConfig
 }
 
 // Option configures a Client.
@@ -50,6 +74,14 @@ func WithTimeout(timeout time.Duration) Option {
 			c.httpClient = &http.Client{}
 		}
 		c.httpClient.Timeout = timeout
+	}
+}
+
+// WithRetry enables automatic retry with the given configuration.
+// Retries are attempted on rate limits (429), server errors (5xx), and timeouts.
+func WithRetry(config *RetryConfig) Option {
+	return func(c *Client) {
+		c.retryConfig = config
 	}
 }
 
@@ -170,10 +202,79 @@ func (c *Client) Token() string {
 
 // get performs a GET request.
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
-	return c.do(ctx, http.MethodGet, path, nil)
+	return c.doWithRetry(ctx, http.MethodGet, path, nil)
 }
 
 // post performs a POST request.
 func (c *Client) post(ctx context.Context, path string, body any) ([]byte, error) {
-	return c.do(ctx, http.MethodPost, path, body)
+	return c.doWithRetry(ctx, http.MethodPost, path, body)
+}
+
+// put performs a PUT request.
+func (c *Client) put(ctx context.Context, path string, body any) ([]byte, error) {
+	return c.doWithRetry(ctx, http.MethodPut, path, body)
+}
+
+// patch performs a PATCH request.
+func (c *Client) patch(ctx context.Context, path string, body any) ([]byte, error) {
+	return c.doWithRetry(ctx, http.MethodPatch, path, body)
+}
+
+// delete performs a DELETE request.
+func (c *Client) delete(ctx context.Context, path string) ([]byte, error) {
+	return c.doWithRetry(ctx, http.MethodDelete, path, nil)
+}
+
+// doWithRetry performs a request with automatic retry on transient failures.
+func (c *Client) doWithRetry(ctx context.Context, method, path string, body any) ([]byte, error) {
+	if c.retryConfig == nil {
+		return c.do(ctx, method, path, body)
+	}
+
+	var lastErr error
+	backoff := c.retryConfig.InitialBackoff
+
+	for attempt := 0; attempt <= c.retryConfig.MaxRetries; attempt++ {
+		data, err := c.do(ctx, method, path, body)
+		if err == nil {
+			return data, nil
+		}
+
+		// Only retry on transient errors
+		if !c.isRetryable(err) {
+			return nil, err
+		}
+
+		lastErr = err
+
+		if attempt < c.retryConfig.MaxRetries {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+				backoff = time.Duration(float64(backoff) * c.retryConfig.Multiplier)
+				if backoff > c.retryConfig.MaxBackoff {
+					backoff = c.retryConfig.MaxBackoff
+				}
+			}
+		}
+	}
+
+	return nil, lastErr
+}
+
+// isRetryable returns true if the error is a transient failure worth retrying.
+func (c *Client) isRetryable(err error) bool {
+	if IsRateLimited(err) {
+		return true
+	}
+	if IsTimeout(err) {
+		return true
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		// Retry on 5xx server errors
+		return apiErr.StatusCode >= 500 && apiErr.StatusCode < 600
+	}
+	return false
 }

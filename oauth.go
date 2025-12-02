@@ -116,12 +116,10 @@ func ExchangeCode(ctx context.Context, cfg *OAuthConfig, code string) (*TokenRes
 
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
-	data.Set("client_id", cfg.ClientID)
-	data.Set("client_secret", cfg.ClientSecret)
 	data.Set("redirect_uri", cfg.RedirectURL)
 	data.Set("code", code)
 
-	return doTokenRequest(ctx, data)
+	return doTokenRequestWithAuth(ctx, cfg.ClientID, cfg.ClientSecret, data)
 }
 
 // RefreshTokens refreshes the access token using a refresh token
@@ -132,14 +130,59 @@ func RefreshTokens(ctx context.Context, cfg *OAuthConfig, refreshToken string) (
 
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
-	data.Set("client_id", cfg.ClientID)
-	data.Set("client_secret", cfg.ClientSecret)
 	data.Set("refresh_token", refreshToken)
 
-	return doTokenRequest(ctx, data)
+	return doTokenRequestWithAuth(ctx, cfg.ClientID, cfg.ClientSecret, data)
 }
 
-// doTokenRequest performs a token request to the OAuth token endpoint
+// doTokenRequestWithAuth performs a token request using HTTP Basic Auth
+func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, data url.Values) (*TokenResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.SetBasicAuth(clientID, clientSecret)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != "" {
+			return nil, fmt.Errorf("OAuth error: %s - %s", errResp.Error, errResp.ErrorDescription)
+		}
+		return nil, fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokens TokenResponse
+	if err := json.Unmarshal(body, &tokens); err != nil {
+		return nil, fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	// Set expiry time if not provided
+	if tokens.ExpiresAt.IsZero() && tokens.ExpiresIn > 0 {
+		tokens.ExpiresAt = time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
+	}
+
+	return &tokens, nil
+}
+
+// doTokenRequest performs a token request to the OAuth token endpoint (deprecated, use doTokenRequestWithAuth)
 func doTokenRequest(ctx context.Context, data url.Values) (*TokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {

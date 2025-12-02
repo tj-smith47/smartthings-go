@@ -1,20 +1,13 @@
 version: 2
 project_name: smartthings-go
 
-# No builds - this is a library, not a CLI
-builds: []
+# Library - no binaries to build
+builds:
+  - skip: true
 
-# Create source archive
+# No archives needed - GitHub auto-creates source archives
 archives:
-  - format: tar.gz
-    name_template: "{{ .ProjectName }}-{{ .Version }}-source"
-    files:
-      - "*.go"
-      - "go.mod"
-      - "LICENSE"
-      - "README.md"
-      - "docs/**/*"
-      - "examples/**/*"
+  - meta: true
 
 # Generate changelog from commits
 changelog:

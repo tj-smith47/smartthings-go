@@ -137,6 +137,10 @@ func RefreshTokens(ctx context.Context, cfg *OAuthConfig, refreshToken string) (
 
 // doTokenRequestWithAuth performs a token request using HTTP Basic Auth
 func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, data url.Values) (*TokenResponse, error) {
+	// Also include credentials in body (some OAuth servers require this)
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token request: %w", err)
@@ -144,7 +148,13 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	// Also set Basic Auth header
 	req.SetBasicAuth(clientID, clientSecret)
+
+	// Debug logging
+	fmt.Printf("[SmartThings OAuth Debug] URL: %s\n", tokenEndpoint)
+	fmt.Printf("[SmartThings OAuth Debug] Body: %s\n", data.Encode())
+	fmt.Printf("[SmartThings OAuth Debug] ClientID (first 8 chars): %s...\n", clientID[:8])
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -157,6 +167,10 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read token response: %w", err)
 	}
+
+	fmt.Printf("[SmartThings OAuth Debug] Response Status: %d\n", resp.StatusCode)
+	fmt.Printf("[SmartThings OAuth Debug] Response Body: %s\n", string(body))
+	fmt.Printf("[SmartThings OAuth Debug] Response Headers: %v\n", resp.Header)
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp struct {

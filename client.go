@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -41,12 +43,26 @@ func DefaultRetryConfig() *RetryConfig {
 	}
 }
 
+// RateLimitInfo contains rate limit information from API response headers.
+type RateLimitInfo struct {
+	Limit     int       // Maximum requests allowed in the window
+	Remaining int       // Requests remaining in current window
+	Reset     time.Time // When the rate limit window resets
+}
+
+// RateLimitCallback is called when rate limit headers are received.
+// Can be used for monitoring or preemptive throttling.
+type RateLimitCallback func(RateLimitInfo)
+
 // Client is a SmartThings API client.
 type Client struct {
-	baseURL     string
-	token       string
-	httpClient  *http.Client
-	retryConfig *RetryConfig
+	baseURL           string
+	token             string
+	httpClient        *http.Client
+	retryConfig       *RetryConfig
+	rateLimitCallback RateLimitCallback
+	lastRateLimit     *RateLimitInfo
+	rateLimitMu       sync.RWMutex
 }
 
 // Option configures a Client.
@@ -82,6 +98,14 @@ func WithTimeout(timeout time.Duration) Option {
 func WithRetry(config *RetryConfig) Option {
 	return func(c *Client) {
 		c.retryConfig = config
+	}
+}
+
+// WithRateLimitCallback sets a callback that is invoked when rate limit headers are received.
+// This can be used for monitoring, logging, or preemptive throttling.
+func WithRateLimitCallback(callback RateLimitCallback) Option {
+	return func(c *Client) {
+		c.rateLimitCallback = callback
 	}
 }
 
@@ -143,6 +167,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 	defer resp.Body.Close()
 
+	// Parse and store rate limit headers
+	c.parseRateLimitHeaders(resp.Header)
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
@@ -153,6 +180,48 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 
 	return respBody, nil
+}
+
+// parseRateLimitHeaders extracts rate limit information from response headers.
+func (c *Client) parseRateLimitHeaders(header http.Header) {
+	limit := header.Get("X-RateLimit-Limit")
+	remaining := header.Get("X-RateLimit-Remaining")
+	reset := header.Get("X-RateLimit-Reset")
+
+	// Only process if at least one header is present
+	if limit == "" && remaining == "" && reset == "" {
+		return
+	}
+
+	info := RateLimitInfo{}
+
+	if limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			info.Limit = v
+		}
+	}
+
+	if remaining != "" {
+		if v, err := strconv.Atoi(remaining); err == nil {
+			info.Remaining = v
+		}
+	}
+
+	if reset != "" {
+		if v, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			info.Reset = time.Unix(v, 0)
+		}
+	}
+
+	// Store the rate limit info
+	c.rateLimitMu.Lock()
+	c.lastRateLimit = &info
+	c.rateLimitMu.Unlock()
+
+	// Invoke callback if set
+	if c.rateLimitCallback != nil {
+		c.rateLimitCallback(info)
+	}
 }
 
 // handleError converts HTTP error responses to appropriate errors.
@@ -198,6 +267,19 @@ func (c *Client) SetToken(token string) {
 // Token returns the current bearer token.
 func (c *Client) Token() string {
 	return c.token
+}
+
+// RateLimitInfo returns the most recent rate limit information from API responses.
+// Returns nil if no rate limit headers have been received yet.
+func (c *Client) RateLimitInfo() *RateLimitInfo {
+	c.rateLimitMu.RLock()
+	defer c.rateLimitMu.RUnlock()
+	if c.lastRateLimit == nil {
+		return nil
+	}
+	// Return a copy to prevent race conditions
+	info := *c.lastRateLimit
+	return &info
 }
 
 // get performs a GET request.

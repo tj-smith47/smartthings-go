@@ -293,3 +293,176 @@ func TestWithTimeout_initializesClient(t *testing.T) {
 		t.Errorf("expected timeout to be 5s, got %v", c.httpClient.Timeout)
 	}
 }
+
+func TestClient_RateLimitHeaders(t *testing.T) {
+	t.Run("parses rate limit headers", func(t *testing.T) {
+		resetTime := time.Now().Add(time.Hour).Unix()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Limit", "100")
+			w.Header().Set("X-RateLimit-Remaining", "75")
+			w.Header().Set("X-RateLimit-Reset", "1704067200") // Fixed timestamp
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+
+		// Initially nil
+		if client.RateLimitInfo() != nil {
+			t.Error("expected nil rate limit info before request")
+		}
+
+		_, err := client.get(context.Background(), "/test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		info := client.RateLimitInfo()
+		if info == nil {
+			t.Fatal("expected rate limit info after request")
+		}
+		if info.Limit != 100 {
+			t.Errorf("Limit = %d, want 100", info.Limit)
+		}
+		if info.Remaining != 75 {
+			t.Errorf("Remaining = %d, want 75", info.Remaining)
+		}
+		if info.Reset.IsZero() {
+			t.Error("Reset should not be zero")
+		}
+		_ = resetTime // Use the variable
+	})
+
+	t.Run("callback is invoked", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Limit", "50")
+			w.Header().Set("X-RateLimit-Remaining", "10")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		var callbackCalled bool
+		var receivedInfo RateLimitInfo
+
+		client, _ := NewClient("token",
+			WithBaseURL(server.URL),
+			WithRateLimitCallback(func(info RateLimitInfo) {
+				callbackCalled = true
+				receivedInfo = info
+			}),
+		)
+
+		_, err := client.get(context.Background(), "/test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !callbackCalled {
+			t.Error("rate limit callback was not called")
+		}
+		if receivedInfo.Limit != 50 {
+			t.Errorf("callback Limit = %d, want 50", receivedInfo.Limit)
+		}
+		if receivedInfo.Remaining != 10 {
+			t.Errorf("callback Remaining = %d, want 10", receivedInfo.Remaining)
+		}
+	})
+
+	t.Run("handles missing headers gracefully", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// No rate limit headers
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.get(context.Background(), "/test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Should still be nil since no headers were present
+		if client.RateLimitInfo() != nil {
+			t.Error("expected nil rate limit info when headers missing")
+		}
+	})
+
+	t.Run("handles partial headers", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Remaining", "25")
+			// Missing Limit and Reset
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.get(context.Background(), "/test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		info := client.RateLimitInfo()
+		if info == nil {
+			t.Fatal("expected rate limit info")
+		}
+		if info.Remaining != 25 {
+			t.Errorf("Remaining = %d, want 25", info.Remaining)
+		}
+		if info.Limit != 0 {
+			t.Errorf("Limit = %d, want 0 (default)", info.Limit)
+		}
+	})
+
+	t.Run("handles invalid header values", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Limit", "not-a-number")
+			w.Header().Set("X-RateLimit-Remaining", "50")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.get(context.Background(), "/test")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		info := client.RateLimitInfo()
+		if info == nil {
+			t.Fatal("expected rate limit info")
+		}
+		// Limit should be 0 (unparseable), Remaining should be 50
+		if info.Limit != 0 {
+			t.Errorf("Limit = %d, want 0", info.Limit)
+		}
+		if info.Remaining != 50 {
+			t.Errorf("Remaining = %d, want 50", info.Remaining)
+		}
+	})
+
+	t.Run("rate limit info is thread safe", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Limit", "100")
+			w.Header().Set("X-RateLimit-Remaining", "50")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+
+		// Make request to populate rate limit info
+		_, _ = client.get(context.Background(), "/test")
+
+		// Reading should return a copy, not the internal pointer
+		info1 := client.RateLimitInfo()
+		info2 := client.RateLimitInfo()
+
+		if info1 == info2 {
+			t.Error("expected different pointers for each call")
+		}
+		if info1.Limit != info2.Limit || info1.Remaining != info2.Remaining {
+			t.Error("expected same values")
+		}
+	})
+}

@@ -55,6 +55,16 @@ var (
 
 	// Capability validation errors
 	ErrEmptyCapabilityID = errors.New("smartthings: capability ID cannot be empty")
+
+	// Mode validation errors
+	ErrEmptyModeID = errors.New("smartthings: mode ID cannot be empty")
+
+	// App validation errors
+	ErrEmptyAppName = errors.New("smartthings: app name cannot be empty")
+
+	// Device profile validation errors
+	ErrEmptyProfileID   = errors.New("smartthings: profile ID cannot be empty")
+	ErrEmptyProfileName = errors.New("smartthings: profile name cannot be empty")
 )
 
 // APIError represents an error response from the SmartThings API.

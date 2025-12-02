@@ -67,6 +67,33 @@ type SmartThingsClient interface {
 	ListInstalledApps(ctx context.Context, locationID string) ([]InstalledApp, error)
 	GetInstalledApp(ctx context.Context, installedAppID string) (*InstalledApp, error)
 	DeleteInstalledApp(ctx context.Context, installedAppID string) error
+
+	// Mode Operations
+	ListModes(ctx context.Context, locationID string) ([]Mode, error)
+	GetMode(ctx context.Context, locationID, modeID string) (*Mode, error)
+	GetCurrentMode(ctx context.Context, locationID string) (*Mode, error)
+	SetCurrentMode(ctx context.Context, locationID, modeID string) (*Mode, error)
+
+	// History/Events Operations
+	GetDeviceEvents(ctx context.Context, deviceID string, opts *HistoryOptions) (*PagedEvents, error)
+	GetDeviceStates(ctx context.Context, deviceID string, opts *HistoryOptions) (*PagedStates, error)
+
+	// App Operations
+	ListApps(ctx context.Context) ([]App, error)
+	GetApp(ctx context.Context, appID string) (*App, error)
+	CreateApp(ctx context.Context, app *AppCreate) (*App, error)
+	UpdateApp(ctx context.Context, appID string, update *AppUpdate) (*App, error)
+	DeleteApp(ctx context.Context, appID string) error
+	GetAppOAuth(ctx context.Context, appID string) (*AppOAuth, error)
+	UpdateAppOAuth(ctx context.Context, appID string, oauth *AppOAuth) (*AppOAuth, error)
+	GenerateAppOAuth(ctx context.Context, appID string) (*AppOAuthGenerated, error)
+
+	// Device Profile Operations
+	ListDeviceProfiles(ctx context.Context) ([]DeviceProfileFull, error)
+	GetDeviceProfile(ctx context.Context, profileID string) (*DeviceProfileFull, error)
+	CreateDeviceProfile(ctx context.Context, profile *DeviceProfileCreate) (*DeviceProfileFull, error)
+	UpdateDeviceProfile(ctx context.Context, profileID string, update *DeviceProfileUpdate) (*DeviceProfileFull, error)
+	DeleteDeviceProfile(ctx context.Context, profileID string) error
 }
 
 // Ensure Client implements SmartThingsClient at compile time.

@@ -137,7 +137,7 @@ func RefreshTokens(ctx context.Context, cfg *OAuthConfig, refreshToken string) (
 
 // doTokenRequestWithAuth performs a token request using HTTP Basic Auth
 func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, data url.Values) (*TokenResponse, error) {
-	// Also include credentials in body (some OAuth servers require this)
+	// Include credentials in body (required by SmartThings)
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
 
@@ -148,13 +148,7 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	// Also set Basic Auth header
 	req.SetBasicAuth(clientID, clientSecret)
-
-	// Debug logging
-	fmt.Printf("[SmartThings OAuth Debug] URL: %s\n", tokenEndpoint)
-	fmt.Printf("[SmartThings OAuth Debug] Body: %s\n", data.Encode())
-	fmt.Printf("[SmartThings OAuth Debug] ClientID (first 8 chars): %s...\n", clientID[:8])
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -167,10 +161,6 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read token response: %w", err)
 	}
-
-	fmt.Printf("[SmartThings OAuth Debug] Response Status: %d\n", resp.StatusCode)
-	fmt.Printf("[SmartThings OAuth Debug] Response Body: %s\n", string(body))
-	fmt.Printf("[SmartThings OAuth Debug] Response Headers: %v\n", resp.Header)
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp struct {
@@ -191,56 +181,6 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 	// Set expiry time if not provided
 	if tokens.ExpiresAt.IsZero() && tokens.ExpiresIn > 0 {
 		tokens.ExpiresAt = time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
-	}
-
-	return &tokens, nil
-}
-
-// doTokenRequest performs a token request to the OAuth token endpoint (deprecated, use doTokenRequestWithAuth)
-func doTokenRequest(ctx context.Context, data url.Values) (*TokenResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create token request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read token response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error            string `json:"error"`
-			ErrorDescription string `json:"error_description"`
-		}
-		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != "" {
-			return nil, fmt.Errorf("OAuth error: %s - %s", errResp.Error, errResp.ErrorDescription)
-		}
-		return nil, fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokens TokenResponse
-	if err := json.Unmarshal(body, &tokens); err != nil {
-		return nil, fmt.Errorf("failed to parse token response: %w", err)
-	}
-
-	// Calculate expiry times
-	now := time.Now()
-	if tokens.ExpiresIn > 0 {
-		tokens.ExpiresAt = now.Add(time.Duration(tokens.ExpiresIn) * time.Second)
-	}
-	if tokens.RefreshTokenExpiresIn > 0 {
-		tokens.RefreshTokenExpiresAt = now.Add(time.Duration(tokens.RefreshTokenExpiresIn) * time.Second)
 	}
 
 	return &tokens, nil

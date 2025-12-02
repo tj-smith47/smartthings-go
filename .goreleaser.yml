@@ -5,10 +5,6 @@ project_name: smartthings-go
 builds:
   - skip: true
 
-# No archives needed - GitHub auto-creates source archives
-archives:
-  - meta: true
-
 # Generate changelog from commits
 changelog:
   sort: asc

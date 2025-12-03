@@ -127,6 +127,19 @@ func TestClient_GetApp(t *testing.T) {
 			t.Errorf("expected not found error, got %v", err)
 		}
 	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.GetApp(context.Background(), "app-123")
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
+		}
+	})
 }
 
 func TestClient_CreateApp(t *testing.T) {
@@ -190,6 +203,32 @@ func TestClient_CreateApp(t *testing.T) {
 			t.Errorf("expected ErrEmptyAppName, got %v", err)
 		}
 	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.CreateApp(context.Background(), &AppCreate{AppName: "test"})
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.CreateApp(context.Background(), &AppCreate{AppName: "test"})
+		if err == nil {
+			t.Fatal("expected error for server error")
+		}
+	})
 }
 
 func TestClient_UpdateApp(t *testing.T) {
@@ -231,6 +270,32 @@ func TestClient_UpdateApp(t *testing.T) {
 		_, err := client.UpdateApp(context.Background(), "", &AppUpdate{})
 		if err != ErrEmptyAppID {
 			t.Errorf("expected ErrEmptyAppID, got %v", err)
+		}
+	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.UpdateApp(context.Background(), "app-123", &AppUpdate{DisplayName: "test"})
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.UpdateApp(context.Background(), "app-123", &AppUpdate{DisplayName: "test"})
+		if err == nil {
+			t.Fatal("expected error for server error")
 		}
 	})
 }
@@ -312,6 +377,32 @@ func TestClient_GetAppOAuth(t *testing.T) {
 			t.Errorf("expected ErrEmptyAppID, got %v", err)
 		}
 	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.GetAppOAuth(context.Background(), "app-123")
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.GetAppOAuth(context.Background(), "app-123")
+		if err == nil {
+			t.Fatal("expected error for server error")
+		}
+	})
 }
 
 func TestClient_UpdateAppOAuth(t *testing.T) {
@@ -354,6 +445,32 @@ func TestClient_UpdateAppOAuth(t *testing.T) {
 		_, err := client.UpdateAppOAuth(context.Background(), "", &AppOAuth{})
 		if err != ErrEmptyAppID {
 			t.Errorf("expected ErrEmptyAppID, got %v", err)
+		}
+	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.UpdateAppOAuth(context.Background(), "app-123", &AppOAuth{ClientName: "test"})
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
+		}
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.UpdateAppOAuth(context.Background(), "app-123", &AppOAuth{ClientName: "test"})
+		if err == nil {
+			t.Fatal("expected error for server error")
 		}
 	})
 }
@@ -407,6 +524,19 @@ func TestClient_GenerateAppOAuth(t *testing.T) {
 		_, err := client.GenerateAppOAuth(context.Background(), "app-123")
 		if !IsUnauthorized(err) {
 			t.Errorf("expected unauthorized error, got %v", err)
+		}
+	})
+
+	t.Run("invalid JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("not json"))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		_, err := client.GenerateAppOAuth(context.Background(), "app-123")
+		if err == nil {
+			t.Fatal("expected error for invalid JSON")
 		}
 	})
 }

@@ -1,5 +1,9 @@
 # smartthings-go
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/tj-smith47/smartthings-go.svg)](https://pkg.go.dev/github.com/tj-smith47/smartthings-go)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/tj-smith47/smartthings-go/main/coverage.json)](https://github.com/tj-smith47/smartthings-go/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tj-smith47/smartthings-go)](https://goreportcard.com/report/github.com/tj-smith47/smartthings-go)
+
 A comprehensive Go client library for the Samsung SmartThings API.
 
 ## Installation
@@ -55,6 +59,8 @@ func main() {
 - **Capabilities** - capability introspection
 - **Pagination support** for large datasets
 - **Automatic retry** with configurable backoff
+- **Response caching** for capabilities and device profiles
+- **SSDP discovery** for local SmartThings hubs and Samsung TVs
 - **TV control** (power, volume, input, apps, picture/sound modes)
 - **Appliance status** extraction (washer, dryer, dishwasher, range, refrigerator)
 
@@ -106,6 +112,51 @@ func handleCallback(code string) error {
 devices, err := client.ListDevices(ctx)
 ```
 
+### Token Storage Options
+
+The library provides multiple token storage backends:
+
+```go
+// File-based storage (persists across restarts)
+store := st.NewFileTokenStore("/path/to/tokens.json")
+
+// In-memory storage (for testing or short-lived processes)
+store := st.NewMemoryTokenStore()
+
+// Custom storage (implement TokenStore interface)
+type TokenStore interface {
+    Load() (*TokenData, error)
+    Save(data *TokenData) error
+}
+
+// Example: Redis-based storage
+type RedisTokenStore struct {
+    client *redis.Client
+    key    string
+}
+
+func (r *RedisTokenStore) Load() (*st.TokenData, error) {
+    data, err := r.client.Get(ctx, r.key).Bytes()
+    if err != nil {
+        return nil, err
+    }
+    var tokens st.TokenData
+    return &tokens, json.Unmarshal(data, &tokens)
+}
+
+func (r *RedisTokenStore) Save(data *st.TokenData) error {
+    bytes, _ := json.Marshal(data)
+    return r.client.Set(ctx, r.key, bytes, 0).Err()
+}
+```
+
+**Token Refresh Behavior:**
+- Tokens are automatically refreshed when expired
+- Refresh happens transparently during API calls
+- Access tokens expire after ~24 hours
+- Refresh tokens are long-lived (~30 days)
+- If refresh fails, `NeedsReauthentication()` returns true
+
 ## API Usage
 
 ### Client Options
@@ -118,9 +169,38 @@ client, err := st.NewClient("your-token")
 client, err := st.NewClient("your-token",
     st.WithTimeout(60 * time.Second),
     st.WithRetry(st.DefaultRetryConfig()),
+    st.WithCache(st.DefaultCacheConfig()), // Enable response caching
     st.WithBaseURL("https://custom-api.example.com"),
 )
+
+// Custom retry configuration
+client, err := st.NewClient("your-token",
+    st.WithRetry(&st.RetryConfig{
+        MaxRetries:     3,
+        InitialBackoff: 100 * time.Millisecond,
+        MaxBackoff:     5 * time.Second,
+        Multiplier:     2.0, // Exponential backoff
+    }),
+)
+
+// Custom cache configuration
+client, err := st.NewClient("your-token",
+    st.WithCache(&st.CacheConfig{
+        TTL:     15 * time.Minute, // Cache TTL
+        MaxSize: 1000,             // Max cached items
+    }),
+)
 ```
+
+**Cached Endpoints:**
+- Capability definitions (rarely change)
+- Device profiles (rarely change)
+- Capability presentations (rarely change)
+
+**Not Cached:**
+- Device status (changes frequently)
+- Device lists (membership changes)
+- Commands/actions (side effects)
 
 ### Device Operations
 
@@ -232,6 +312,63 @@ sub, err := client.CreateSubscription(ctx, installedAppID, &st.SubscriptionCreat
 err := client.DeleteAllSubscriptions(ctx, installedAppID)
 ```
 
+### Webhook Handling
+
+When building SmartApps, you'll receive webhook callbacks from SmartThings. The library provides utilities for validating and processing these callbacks:
+
+```go
+// Validate webhook signature (HMAC-SHA256)
+valid := st.ValidateWebhookSignature(requestBody, signatureHeader, appSecret)
+if !valid {
+    return errors.New("invalid webhook signature")
+}
+
+// Parse webhook event
+var event st.WebhookEvent
+if err := json.Unmarshal(requestBody, &event); err != nil {
+    return err
+}
+
+// Handle based on lifecycle phase
+switch event.Lifecycle {
+case "PING":
+    // Respond with challenge for initial registration
+    response := st.PingResponse{PingData: event.PingData}
+
+case "CONFIGURATION":
+    // Return app configuration UI
+
+case "INSTALL":
+    // App installed - create subscriptions
+    for _, device := range event.InstalledApp.Config.Devices {
+        client.CreateSubscription(ctx, event.InstalledApp.InstalledAppID, ...)
+    }
+
+case "UPDATE":
+    // App configuration updated
+
+case "EVENT":
+    // Device event received
+    for _, evt := range event.Events {
+        if evt.EventType == "DEVICE_EVENT" {
+            fmt.Printf("Device %s: %s = %v\n",
+                evt.DeviceEvent.DeviceID,
+                evt.DeviceEvent.Attribute,
+                evt.DeviceEvent.Value)
+        }
+    }
+
+case "UNINSTALL":
+    // App uninstalled - clean up
+}
+```
+
+**Webhook Security:**
+- Always validate the `X-ST-SIGNATURE` header using HMAC-SHA256
+- Use HTTPS for your webhook endpoint
+- Respond within 20 seconds to avoid timeout
+- Return 200 OK for successful processing
+
 ### Capabilities
 
 ```go
@@ -240,6 +377,66 @@ caps, err := client.ListCapabilities(ctx)
 
 // Get capability definition
 cap, err := client.GetCapability(ctx, "switch", 1)
+
+// List capabilities by category
+caps, err := client.ListCapabilitiesByCategory(ctx, "Lights")
+```
+
+### Apps & Installed Apps
+
+For SmartApp development:
+
+```go
+// List your registered apps
+apps, err := client.ListApps(ctx)
+
+// Get app details
+app, err := client.GetApp(ctx, appID)
+
+// List installations of your app
+installs, err := client.ListInstalledApps(ctx, locationID)
+
+// Get specific installation
+install, err := client.GetInstalledApp(ctx, installedAppID)
+
+// Get installation configuration
+config, err := client.GetInstalledAppConfig(ctx, installedAppID)
+
+// Delete installation
+err := client.DeleteInstalledApp(ctx, installedAppID)
+```
+
+### Schedules
+
+Create scheduled automations:
+
+```go
+// List schedules for an installed app
+schedules, err := client.ListSchedules(ctx, installedAppID)
+
+// Create a scheduled trigger (cron expression)
+schedule, err := client.CreateSchedule(ctx, installedAppID, &st.ScheduleRequest{
+    Name: "daily-morning",
+    Cron: &st.CronSchedule{
+        Expression: "0 7 * * *", // Daily at 7 AM
+        Timezone:   "America/New_York",
+    },
+})
+
+// Delete a schedule
+err := client.DeleteSchedule(ctx, installedAppID, scheduleName)
+```
+
+### Notifications
+
+Send push notifications to SmartThings app users:
+
+```go
+// Send a notification
+err := client.SendNotification(ctx, locationID, &st.NotificationRequest{
+    Message: "Your laundry is done!",
+    Title:   "Washer Complete",
+})
 ```
 
 ### TV Control
@@ -307,6 +504,26 @@ isOn := st.GetStringEquals(status, "on", "switch", "switch", "value")
 fahrenheit := st.CelsiusToFahrenheit(celsius)
 ```
 
+### Local Network Discovery
+
+```go
+// Discover SmartThings hubs on the local network via SSDP
+discovery := st.NewDiscovery(5 * time.Second)
+hubs, err := discovery.FindHubs(ctx)
+for _, hub := range hubs {
+    fmt.Printf("Found hub at %s:%d\n", hub.IP, hub.Port)
+}
+
+// Discover Samsung TVs
+tvs, err := discovery.FindTVs(ctx)
+for _, tv := range tvs {
+    fmt.Printf("Found TV: %s at %s:%d\n", tv.Name, tv.IP, tv.Port)
+}
+
+// Discover both hubs and TVs at once
+allDevices, err := discovery.DiscoverAll(ctx)
+```
+
 ## Error Handling
 
 ```go
@@ -347,11 +564,62 @@ var _ SmartThingsClient = (*Client)(nil)
 var _ SmartThingsClient = (*OAuthClient)(nil)
 ```
 
+## Concurrency
+
+The library is designed to be safe for concurrent use:
+
+```go
+// Client is safe to share across goroutines
+client, _ := st.NewClient("your-token")
+
+// Concurrent device polling
+var wg sync.WaitGroup
+for _, deviceID := range deviceIDs {
+    wg.Add(1)
+    go func(id string) {
+        defer wg.Done()
+        status, err := client.GetDeviceStatus(ctx, id)
+        // Process status...
+    }(deviceID)
+}
+wg.Wait()
+```
+
+**Thread Safety Notes:**
+- All client methods are goroutine-safe
+- Token refresh is synchronized (one refresh at a time)
+- Cache operations are protected by mutex
+- Token storage implementations should be thread-safe
+
+## Rate Limiting
+
+SmartThings API has rate limits. The library handles this automatically with configurable retry:
+
+```go
+client, _ := st.NewClient("your-token",
+    st.WithRetry(&st.RetryConfig{
+        MaxRetries:     5,
+        InitialBackoff: 1 * time.Second,
+    }),
+)
+```
+
+When rate limited:
+- Library retries with exponential backoff
+- `IsRateLimited(err)` returns true for rate limit errors
+- Consider spreading requests over time for bulk operations
+
 ## SmartThings API Reference
 
 - Base URL: `https://api.smartthings.com/v1`
 - [API Documentation](https://developer.smartthings.com/docs/api/public/)
 - [Getting an API Token](https://account.smartthings.com/tokens)
+- [Developer Workspace](https://developer.smartthings.com/) - Create SmartApps and device integrations
+- [OAuth App Registration](https://developer.smartthings.com/workspace) - Register OAuth apps
+
+## Disclaimer
+
+Generated entirely by Claude Opus 4.5 over many iterations 🤖
 
 ## License
 

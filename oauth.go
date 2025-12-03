@@ -14,7 +14,6 @@ import (
 const (
 	// OAuth endpoints
 	authorizationEndpoint = "https://api.smartthings.com/oauth/authorize"
-	tokenEndpoint         = "https://api.smartthings.com/oauth/token"
 
 	// Default scopes for SmartThings OAuth
 	defaultScopeDevicesRead    = "r:devices:*"
@@ -24,6 +23,9 @@ const (
 	// tokenRefreshBuffer is how long before expiry we should refresh the token
 	tokenRefreshBuffer = 5 * time.Minute
 )
+
+// tokenEndpoint is the OAuth token endpoint URL (variable to allow testing)
+var tokenEndpoint = "https://api.smartthings.com/oauth/token"
 
 // DefaultScopes returns the default OAuth scopes for SmartThings
 func DefaultScopes() []string {
@@ -143,7 +145,7 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create token request: %w", err)
+		return nil, fmt.Errorf("doTokenRequestWithAuth: create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -159,7 +161,7 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read token response: %w", err)
+		return nil, fmt.Errorf("doTokenRequestWithAuth: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -175,7 +177,7 @@ func doTokenRequestWithAuth(ctx context.Context, clientID, clientSecret string, 
 
 	var tokens TokenResponse
 	if err := json.Unmarshal(body, &tokens); err != nil {
-		return nil, fmt.Errorf("failed to parse token response: %w", err)
+		return nil, fmt.Errorf("doTokenRequestWithAuth: parse response: %w", err)
 	}
 
 	// Set expiry time if not provided

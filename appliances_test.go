@@ -103,6 +103,98 @@ func TestExtractLaundryStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("washer with hour unit (singular)", func(t *testing.T) {
+		status := Status{
+			"samsungce.washerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+				"remainingTime": map[string]any{
+					"value": float64(1.5),
+					"unit":  "hour",
+				},
+			},
+		}
+
+		result := ExtractLaundryStatus(status, ApplianceWasher)
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		if result.RemainingMins == nil {
+			t.Fatal("RemainingMins is nil")
+		}
+		if *result.RemainingMins != 90 {
+			t.Errorf("RemainingMins = %d, want 90", *result.RemainingMins)
+		}
+	})
+
+	t.Run("washer with unknown unit defaults to seconds", func(t *testing.T) {
+		status := Status{
+			"samsungce.washerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+				"remainingTime": map[string]any{
+					"value": float64(120), // 120 unknown = 2 mins (assuming seconds)
+					"unit":  "xyz",
+				},
+			},
+		}
+
+		result := ExtractLaundryStatus(status, ApplianceWasher)
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		if result.RemainingMins == nil {
+			t.Fatal("RemainingMins is nil")
+		}
+		if *result.RemainingMins != 2 {
+			t.Errorf("RemainingMins = %d, want 2", *result.RemainingMins)
+		}
+	})
+
+	t.Run("washer with no unit defaults to seconds", func(t *testing.T) {
+		status := Status{
+			"samsungce.washerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+				"remainingTime": map[string]any{
+					"value": float64(180), // 180 seconds = 3 mins
+				},
+			},
+		}
+
+		result := ExtractLaundryStatus(status, ApplianceWasher)
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		if result.RemainingMins == nil {
+			t.Fatal("RemainingMins is nil")
+		}
+		if *result.RemainingMins != 3 {
+			t.Errorf("RemainingMins = %d, want 3", *result.RemainingMins)
+		}
+	})
+
+	t.Run("completion time calculates remaining when not provided", func(t *testing.T) {
+		// Use a future time to test the calculation
+		status := Status{
+			"samsungce.washerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+				"completionTime": map[string]any{
+					"value": "2099-01-15T15:30:00Z", // Far future
+				},
+			},
+		}
+
+		result := ExtractLaundryStatus(status, ApplianceWasher)
+		if result == nil {
+			t.Fatal("result is nil")
+		}
+		// Should have calculated remaining time
+		if result.RemainingMins == nil {
+			t.Fatal("RemainingMins should be calculated from completion time")
+		}
+		if *result.RemainingMins <= 0 {
+			t.Error("RemainingMins should be positive for future completion time")
+		}
+	})
+
 	t.Run("legacy namespace fallback", func(t *testing.T) {
 		status := Status{
 			"dryerOperatingState": map[string]any{

@@ -508,6 +508,14 @@ func GetApplianceState(status Status, applianceType string) string {
 		return stateRunning
 	}
 
+	// TV state based on switch
+	if applianceType == "tv" {
+		if power, ok := GetString(status, "switch", "switch", "value"); ok {
+			return power // "on" or "off"
+		}
+		return "off"
+	}
+
 	// Try generic extraction for unknown appliance types
 	if generic := ExtractGenericApplianceStatus(status); generic != nil && generic.State != stateIdle {
 		return generic.State

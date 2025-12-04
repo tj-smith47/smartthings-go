@@ -102,7 +102,12 @@
 //
 //   - TV control (power, volume, input, apps, picture/sound modes)
 //   - Appliance status extraction (washer, dryer, dishwasher, range, refrigerator)
-//   - Brilliant switch/dimmer support
+//
+// # Third-Party Device Support
+//
+// The library also supports third-party devices that integrate with SmartThings:
+//
+//   - Brilliant Home Control switches and dimmers
 //
 // For more information, see https://developer.smartthings.com/docs/api/public/
 package smartthings

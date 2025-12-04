@@ -1,7 +1,7 @@
 # smartthings-go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/tj-smith47/smartthings-go.svg)](https://pkg.go.dev/github.com/tj-smith47/smartthings-go)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/tj-smith47/smartthings-go/main/coverage.json)](https://github.com/tj-smith47/smartthings-go/actions)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/tj-smith47/smartthings-go/badges/coverage.json)](https://github.com/tj-smith47/smartthings-go/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tj-smith47/smartthings-go)](https://goreportcard.com/report/github.com/tj-smith47/smartthings-go)
 
 A comprehensive Go client library for the Samsung SmartThings API.

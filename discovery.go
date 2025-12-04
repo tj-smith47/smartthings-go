@@ -401,7 +401,6 @@ func (d *Discovery) DiscoverAll(ctx context.Context) ([]DiscoveredHub, []Discove
 		mu         sync.Mutex
 	)
 
-	// Go 1.25: Use WaitGroup.Go() for parallel discovery
 	wg.Go(func() {
 		result, err := d.FindHubs(ctx)
 		mu.Lock()

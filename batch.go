@@ -89,9 +89,7 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 		default:
 		}
 
-		// Go 1.25: Use WaitGroup.Go() - loop variables are captured correctly
 		wg.Go(func() {
-			// Acquire semaphore
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
@@ -100,7 +98,6 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 				return
 			}
 
-			// Check if stopped
 			mu.Lock()
 			if stopped {
 				mu.Unlock()
@@ -109,11 +106,9 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 			}
 			mu.Unlock()
 
-			// Execute commands
 			err := c.ExecuteCommands(ctx, cmd.DeviceID, cmd.Commands)
 			results[i] = BatchResult{DeviceID: cmd.DeviceID, Error: err}
 
-			// Handle stop on error
 			if err != nil && cfg.StopOnError {
 				mu.Lock()
 				stopped = true
@@ -188,9 +183,7 @@ func (c *Client) GetDeviceStatusBatch(ctx context.Context, deviceIDs []string, c
 		default:
 		}
 
-		// Go 1.25: Use WaitGroup.Go() - loop variables are captured correctly
 		wg.Go(func() {
-			// Acquire semaphore
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
@@ -199,7 +192,6 @@ func (c *Client) GetDeviceStatusBatch(ctx context.Context, deviceIDs []string, c
 				return
 			}
 
-			// Fetch status
 			status, err := c.GetDeviceFullStatus(ctx, deviceID)
 			results[i] = BatchStatusResult{
 				DeviceID:   deviceID,

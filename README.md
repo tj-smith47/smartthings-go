@@ -612,7 +612,7 @@ The library is designed to be safe for concurrent use:
 // Client is safe to share across goroutines
 client, _ := st.NewClient("your-token")
 
-// Concurrent device polling (Go 1.22+: loop variables captured correctly)
+// Concurrent device polling
 var wg sync.WaitGroup
 for _, deviceID := range deviceIDs {
     wg.Go(func() {

@@ -401,6 +401,87 @@ func TestNewComponentCommand(t *testing.T) {
 	}
 }
 
+func TestClient_ExecuteComponentCommand(t *testing.T) {
+	t.Run("successful command to cooler component", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/devices/fridge-123/commands" {
+				t.Errorf("path = %q, want %q", r.URL.Path, "/devices/fridge-123/commands")
+			}
+			if r.Method != "POST" {
+				t.Errorf("method = %q, want POST", r.Method)
+			}
+
+			var req CommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+
+			if len(req.Commands) != 1 {
+				t.Errorf("got %d commands, want 1", len(req.Commands))
+			}
+			cmd := req.Commands[0]
+			if cmd.Component != "cooler" {
+				t.Errorf("Component = %q, want %q", cmd.Component, "cooler")
+			}
+			if cmd.Capability != "thermostatCoolingSetpoint" {
+				t.Errorf("Capability = %q, want %q", cmd.Capability, "thermostatCoolingSetpoint")
+			}
+			if cmd.Command != "setCoolingSetpoint" {
+				t.Errorf("Command = %q, want %q", cmd.Command, "setCoolingSetpoint")
+			}
+			if len(cmd.Arguments) != 1 {
+				t.Errorf("got %d arguments, want 1", len(cmd.Arguments))
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"results":[{"status":"ACCEPTED"}]}`))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		err := client.ExecuteComponentCommand(context.Background(), "fridge-123", "cooler", "thermostatCoolingSetpoint", "setCoolingSetpoint", 3)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("icemaker switch command", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req CommandRequest
+			json.NewDecoder(r.Body).Decode(&req)
+
+			cmd := req.Commands[0]
+			if cmd.Component != "icemaker" {
+				t.Errorf("Component = %q, want %q", cmd.Component, "icemaker")
+			}
+			if cmd.Capability != "switch" {
+				t.Errorf("Capability = %q, want %q", cmd.Capability, "switch")
+			}
+			if cmd.Command != "on" {
+				t.Errorf("Command = %q, want %q", cmd.Command, "on")
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"results":[{"status":"ACCEPTED"}]}`))
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		err := client.ExecuteComponentCommand(context.Background(), "fridge-123", "icemaker", "switch", "on")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty device ID", func(t *testing.T) {
+		client, _ := NewClient("token")
+		err := client.ExecuteComponentCommand(context.Background(), "", "cooler", "thermostatCoolingSetpoint", "setCoolingSetpoint", 3)
+		if err != ErrEmptyDeviceID {
+			t.Errorf("err = %v, want %v", err, ErrEmptyDeviceID)
+		}
+	})
+}
+
 func TestFilterDevices(t *testing.T) {
 	devices := []Device{
 		{DeviceID: "1", ManufacturerName: "Samsung", Label: "TV"},

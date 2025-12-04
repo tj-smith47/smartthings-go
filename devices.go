@@ -277,6 +277,21 @@ func NewComponentCommand(component, capability, command string, args ...any) Com
 	}
 }
 
+// ExecuteComponentCommand sends a command to a specific component of a device.
+// This is a convenience method that combines NewComponentCommand and ExecuteCommand.
+//
+// Example usage for refrigerator cooler temperature:
+//
+//	err := client.ExecuteComponentCommand(ctx, deviceID, "cooler", "thermostatCoolingSetpoint", "setCoolingSetpoint", 3)
+//
+// Example usage for icemaker switch:
+//
+//	err := client.ExecuteComponentCommand(ctx, deviceID, "icemaker", "switch", "on")
+func (c *Client) ExecuteComponentCommand(ctx context.Context, deviceID, component, capability, command string, args ...any) error {
+	cmd := NewComponentCommand(component, capability, command, args...)
+	return c.ExecuteCommand(ctx, deviceID, cmd)
+}
+
 // FilterDevices returns devices matching the given filter function.
 func FilterDevices(devices []Device, filter func(Device) bool) []Device {
 	result := make([]Device, 0, len(devices))

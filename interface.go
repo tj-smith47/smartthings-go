@@ -23,6 +23,7 @@ type SmartThingsClient interface {
 	GetComponentStatus(ctx context.Context, deviceID, componentID string) (Status, error)
 	ExecuteCommand(ctx context.Context, deviceID string, cmd Command) error
 	ExecuteCommands(ctx context.Context, deviceID string, cmds []Command) error
+	ExecuteComponentCommand(ctx context.Context, deviceID, component, capability, command string, args ...any) error
 	DeleteDevice(ctx context.Context, deviceID string) error
 	UpdateDevice(ctx context.Context, deviceID string, update *DeviceUpdate) (*Device, error)
 	GetDeviceHealth(ctx context.Context, deviceID string) (*DeviceHealth, error)

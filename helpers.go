@@ -244,3 +244,48 @@ func CelsiusToFahrenheit(celsius float64) int {
 func FahrenheitToCelsius(fahrenheit int) float64 {
 	return float64(fahrenheit-32) * 5 / 9
 }
+
+// ToStringSlice converts a []any to []string, filtering out non-string values.
+// Useful for extracting supported options lists from Samsung API responses.
+//
+// Example:
+//
+//	arr, _ := GetArray(status, "samsungce.washerCycle", "supportedWasherCycle", "value")
+//	cycles := ToStringSlice(arr) // []string{"normal", "delicate", "heavy"}
+func ToStringSlice(arr []any) []string {
+	if arr == nil {
+		return nil
+	}
+	result := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if s, ok := v.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// ToIntSlice converts a []any to []int, filtering out non-numeric values.
+// Handles both int and float64 (JSON number representation).
+//
+// Example:
+//
+//	arr, _ := GetArray(status, "supportedTemperatures", "value")
+//	temps := ToIntSlice(arr) // []int{34, 36, 38, 40, 42, 44}
+func ToIntSlice(arr []any) []int {
+	if arr == nil {
+		return nil
+	}
+	result := make([]int, 0, len(arr))
+	for _, v := range arr {
+		switch n := v.(type) {
+		case int:
+			result = append(result, n)
+		case float64:
+			result = append(result, int(n))
+		case int64:
+			result = append(result, int(n))
+		}
+	}
+	return result
+}

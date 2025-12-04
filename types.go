@@ -258,3 +258,107 @@ type GenericApplianceStatus struct {
 	// DiscoveredCapabilities lists all capability names found on the device.
 	DiscoveredCapabilities []string `json:"discovered_capabilities,omitempty"`
 }
+
+// WasherDetailedStatus provides comprehensive washer status including remote control state.
+// Use ExtractWasherDetailedStatus to extract from a device status response.
+type WasherDetailedStatus struct {
+	// Operating state
+	State          string  `json:"state"`                     // "idle", "running", "paused", etc.
+	RemainingMins  *int    `json:"remaining_mins,omitempty"`  // Minutes remaining
+	CompletionTime *string `json:"completion_time,omitempty"` // ISO8601 completion time
+	CycleProgress  *int    `json:"cycle_progress,omitempty"`  // 0-100%
+
+	// CRITICAL: Remote control status - controls whether commands can be sent
+	RemoteControlEnabled bool `json:"remote_control_enabled"`
+
+	// Current settings
+	CurrentCycle     string `json:"current_cycle,omitempty"`
+	WaterTemperature string `json:"water_temperature,omitempty"`
+	SpinLevel        string `json:"spin_level,omitempty"`
+	SoilLevel        string `json:"soil_level,omitempty"`
+
+	// Child lock
+	ChildLockOn bool `json:"child_lock_on"`
+
+	// Supported options (for UI dropdowns)
+	SupportedCycles     []string `json:"supported_cycles,omitempty"`
+	SupportedWaterTemps []string `json:"supported_water_temps,omitempty"`
+	SupportedSpinLevels []string `json:"supported_spin_levels,omitempty"`
+	SupportedSoilLevels []string `json:"supported_soil_levels,omitempty"`
+}
+
+// DryerDetailedStatus provides comprehensive dryer status including remote control state.
+// Use ExtractDryerDetailedStatus to extract from a device status response.
+type DryerDetailedStatus struct {
+	// Operating state
+	State          string  `json:"state"`                     // "idle", "running", "paused", etc.
+	RemainingMins  *int    `json:"remaining_mins,omitempty"`  // Minutes remaining
+	CompletionTime *string `json:"completion_time,omitempty"` // ISO8601 completion time
+	CycleProgress  *int    `json:"cycle_progress,omitempty"`  // 0-100%
+
+	// CRITICAL: Remote control status
+	RemoteControlEnabled bool `json:"remote_control_enabled"`
+
+	// Current settings
+	CurrentCycle       string `json:"current_cycle,omitempty"`
+	DryingTemperature  string `json:"drying_temperature,omitempty"`
+	DryingTime         string `json:"drying_time,omitempty"`
+	DryingLevel        string `json:"drying_level,omitempty"` // wrinkleFree, normal, etc.
+
+	// Child lock
+	ChildLockOn bool `json:"child_lock_on"`
+
+	// Supported options
+	SupportedCycles       []string `json:"supported_cycles,omitempty"`
+	SupportedTemperatures []string `json:"supported_temperatures,omitempty"`
+	SupportedDryingLevels []string `json:"supported_drying_levels,omitempty"`
+}
+
+// DishwasherDetailedStatus provides comprehensive dishwasher status.
+// Use ExtractDishwasherDetailedStatus to extract from a device status response.
+type DishwasherDetailedStatus struct {
+	// Operating state
+	State          string  `json:"state"`                     // "idle", "running", "paused", etc.
+	RemainingMins  *int    `json:"remaining_mins,omitempty"`  // Minutes remaining
+	CompletionTime *string `json:"completion_time,omitempty"` // ISO8601 completion time
+	CycleProgress  *int    `json:"cycle_progress,omitempty"`  // 0-100%
+
+	// CRITICAL: Remote control status
+	RemoteControlEnabled bool `json:"remote_control_enabled"`
+
+	// Current settings
+	CurrentCourse string `json:"current_course,omitempty"` // Wash course/cycle
+
+	// Child lock
+	ChildLockOn bool `json:"child_lock_on"`
+
+	// Supported options
+	SupportedCourses []string `json:"supported_courses,omitempty"`
+}
+
+// RangeDetailedStatus provides comprehensive range/oven status.
+// Note: Cooktop is NOT controllable via API for safety reasons.
+// Use ExtractRangeDetailedStatus to extract from a device status response.
+type RangeDetailedStatus struct {
+	// Cooktop state (read-only, NOT controllable)
+	CooktopActive bool `json:"cooktop_active"` // true if any burner is on
+
+	// Oven state
+	OvenActive     bool    `json:"oven_active"`                 // true if oven is running
+	OvenTemp       *int    `json:"oven_temp,omitempty"`         // Current temp (F)
+	OvenTargetTemp *int    `json:"oven_target_temp,omitempty"`  // Target temp (F)
+	OvenMode       string  `json:"oven_mode,omitempty"`         // Bake, Broil, Convection, etc.
+	RemainingMins  *int    `json:"remaining_mins,omitempty"`    // Cook time remaining
+	OvenLightOn    bool    `json:"oven_light_on"`               // Oven light state
+
+	// CRITICAL: Remote control status
+	RemoteControlEnabled bool `json:"remote_control_enabled"`
+
+	// Child lock
+	ChildLockOn bool `json:"child_lock_on"`
+
+	// Supported options
+	SupportedOvenModes []string `json:"supported_oven_modes,omitempty"`
+	OvenTempMin        *int     `json:"oven_temp_min,omitempty"` // Min temp (F)
+	OvenTempMax        *int     `json:"oven_temp_max,omitempty"` // Max temp (F)
+}

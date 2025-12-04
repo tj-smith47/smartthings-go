@@ -298,3 +298,101 @@ func ExtractHubData(status map[string]any) (*HubData, error) {
 
 	return hubData, nil
 }
+
+// HubLocalConnectionInfo holds configuration for connecting to a hub's local API.
+type HubLocalConnectionInfo struct {
+	HubID   string
+	Name    string
+	LocalIP string
+	Port    int // Default: 39500
+}
+
+// hubListResponse is the API response for listing hubs.
+type hubListResponse struct {
+	Items []Hub `json:"items"`
+}
+
+// ListHubs returns all hubs associated with the account.
+func (c *Client) ListHubs(ctx context.Context) ([]Hub, error) {
+	data, err := c.get(ctx, "/hubdevices")
+	if err != nil {
+		return nil, err
+	}
+
+	var resp hubListResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("ListHubs: parse response: %w (body: %s)", err, truncatePreview(data))
+	}
+
+	return resp.Items, nil
+}
+
+// GetHubWithLocalIP returns a hub with its local IP address by fetching hub data.
+// The hub device ID can be found by listing devices and filtering for type "HUB".
+func (c *Client) GetHubWithLocalIP(ctx context.Context, hubID string) (*Hub, *HubData, error) {
+	if hubID == "" {
+		return nil, nil, ErrEmptyHubID
+	}
+
+	// Get basic hub info
+	hub, err := c.GetHub(ctx, hubID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Get device status which contains hubData with localIP
+	status, err := c.GetDeviceStatusAllComponents(ctx, hubID)
+	if err != nil {
+		return hub, nil, nil // Return hub without hubData if status fails
+	}
+
+	hubData, err := ExtractHubData(status)
+	if err != nil {
+		return hub, nil, err
+	}
+
+	return hub, hubData, nil
+}
+
+// GetHubLocalConnectionInfo retrieves the information needed to connect to
+// a hub's local WebSocket API. Returns the hub ID, name, local IP, and port.
+func (c *Client) GetHubLocalConnectionInfo(ctx context.Context, hubID string) (*HubLocalConnectionInfo, error) {
+	hub, hubData, err := c.GetHubWithLocalIP(ctx, hubID)
+	if err != nil {
+		return nil, err
+	}
+
+	if hubData == nil || hubData.LocalIP == "" {
+		return nil, fmt.Errorf("hub %s does not have a local IP address available", hubID)
+	}
+
+	return &HubLocalConnectionInfo{
+		HubID:   hub.HubID,
+		Name:    hub.Name,
+		LocalIP: hubData.LocalIP,
+		Port:    HubLocalDefaultPort,
+	}, nil
+}
+
+// DiscoverHubForLocalConnection finds the first available hub and returns
+// connection info for the local WebSocket API.
+func (c *Client) DiscoverHubForLocalConnection(ctx context.Context) (*HubLocalConnectionInfo, error) {
+	hubs, err := c.ListHubs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list hubs: %w", err)
+	}
+
+	if len(hubs) == 0 {
+		return nil, fmt.Errorf("no hubs found")
+	}
+
+	// Try each hub until we find one with a local IP
+	for _, hub := range hubs {
+		info, err := c.GetHubLocalConnectionInfo(ctx, hub.HubID)
+		if err == nil && info.LocalIP != "" {
+			return info, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no hub with local API available found")
+}

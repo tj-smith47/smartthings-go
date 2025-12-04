@@ -93,6 +93,24 @@ type HubLocalClient struct {
 	// Ping/pong tracking
 	lastPong time.Time
 	pongMu   sync.RWMutex
+
+	// Reconnect configuration
+	reconnectEnabled  bool
+	reconnectDelay    time.Duration
+	reconnectMaxDelay time.Duration
+	onReconnect       func()
+	onDisconnect      func(error)
+
+	// Subscription tracking for resubscription after reconnect
+	subscriptions   []string // Device IDs subscribed to
+	subscribeAll    bool     // Whether SubscribeAll was called
+	subscriptionsMu sync.RWMutex
+
+	// Reconnect state
+	reconnecting   bool
+	reconnectMu    sync.Mutex
+	manualClose    bool // True if Close() was called explicitly
+	eventBufferSz  int
 }
 
 // HubLocalConfig configures the HubLocalClient.
@@ -108,6 +126,21 @@ type HubLocalConfig struct {
 
 	// EventBufferSize is the size of the events channel buffer (default: 100).
 	EventBufferSize int
+
+	// ReconnectEnabled enables automatic reconnection on disconnect (default: true).
+	ReconnectEnabled *bool
+
+	// ReconnectDelay is the initial delay before reconnecting (default: 5s).
+	ReconnectDelay time.Duration
+
+	// ReconnectMaxDelay is the maximum delay between reconnection attempts (default: 5m).
+	ReconnectMaxDelay time.Duration
+
+	// OnReconnect is called when a reconnection occurs.
+	OnReconnect func()
+
+	// OnDisconnect is called when the connection is lost.
+	OnDisconnect func(error)
 }
 
 // NewHubLocalClient creates a new client for connecting to a SmartThings Hub's local API.
@@ -133,13 +166,35 @@ func NewHubLocalClient(cfg *HubLocalConfig) (*HubLocalClient, error) {
 		bufSize = 100
 	}
 
+	// Default reconnect enabled to true
+	reconnectEnabled := true
+	if cfg.ReconnectEnabled != nil {
+		reconnectEnabled = *cfg.ReconnectEnabled
+	}
+
+	reconnectDelay := cfg.ReconnectDelay
+	if reconnectDelay == 0 {
+		reconnectDelay = 5 * time.Second
+	}
+
+	reconnectMaxDelay := cfg.ReconnectMaxDelay
+	if reconnectMaxDelay == 0 {
+		reconnectMaxDelay = 5 * time.Minute
+	}
+
 	return &HubLocalClient{
-		hubIP:   cfg.HubIP,
-		hubPort: port,
-		token:   cfg.Token,
-		events:  make(chan HubLocalEvent, bufSize),
-		errors:  make(chan error, 10),
-		done:    make(chan struct{}),
+		hubIP:             cfg.HubIP,
+		hubPort:           port,
+		token:             cfg.Token,
+		events:            make(chan HubLocalEvent, bufSize),
+		errors:            make(chan error, 10),
+		done:              make(chan struct{}),
+		eventBufferSz:     bufSize,
+		reconnectEnabled:  reconnectEnabled,
+		reconnectDelay:    reconnectDelay,
+		reconnectMaxDelay: reconnectMaxDelay,
+		onReconnect:       cfg.OnReconnect,
+		onDisconnect:      cfg.OnDisconnect,
 	}, nil
 }
 
@@ -266,9 +321,27 @@ func computeWebSocketAccept(key string) string {
 
 // readLoop continuously reads WebSocket frames from the connection.
 func (c *HubLocalClient) readLoop() {
+	var disconnectErr error
+
 	defer func() {
-		close(c.events)
-		close(c.errors)
+		// Only close channels if this is a manual close or reconnect is disabled
+		c.reconnectMu.Lock()
+		shouldReconnect := c.reconnectEnabled && !c.manualClose
+		c.reconnectMu.Unlock()
+
+		// Call disconnect callback
+		if c.onDisconnect != nil && disconnectErr != nil {
+			c.onDisconnect(disconnectErr)
+		}
+
+		if shouldReconnect {
+			// Trigger reconnect in background
+			go c.reconnectLoop()
+		} else {
+			// Close channels only when not reconnecting
+			close(c.events)
+			close(c.errors)
+		}
 	}()
 
 	for {
@@ -293,7 +366,13 @@ func (c *HubLocalClient) readLoop() {
 				return
 			default:
 				if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-					c.errors <- fmt.Errorf("read frame: %w", err)
+					disconnectErr = fmt.Errorf("read frame: %w", err)
+					select {
+					case c.errors <- disconnectErr:
+					default:
+					}
+				} else {
+					disconnectErr = err
 				}
 				return
 			}
@@ -311,6 +390,7 @@ func (c *HubLocalClient) readLoop() {
 			c.lastPong = time.Now()
 			c.pongMu.Unlock()
 		case wsOpcodeClose:
+			disconnectErr = errors.New("server closed connection")
 			return
 		}
 	}
@@ -494,8 +574,13 @@ func (c *HubLocalClient) Errors() <-chan error {
 	return c.errors
 }
 
-// Close closes the WebSocket connection.
+// Close closes the WebSocket connection and prevents automatic reconnection.
 func (c *HubLocalClient) Close() error {
+	// Mark as manual close to prevent reconnection
+	c.reconnectMu.Lock()
+	c.manualClose = true
+	c.reconnectMu.Unlock()
+
 	c.connMu.Lock()
 
 	if c.conn == nil {
@@ -534,10 +619,28 @@ func (c *HubLocalClient) IsConnected() bool {
 
 // Subscribe sends a subscription request for device events.
 // Call this after Connect to start receiving events for specific devices.
+// Subscriptions are tracked and automatically restored after reconnection.
 func (c *HubLocalClient) Subscribe(ctx context.Context, deviceIDs ...string) error {
 	if len(deviceIDs) == 0 {
 		return errors.New("at least one device ID is required")
 	}
+
+	// Track subscriptions for reconnect
+	c.subscriptionsMu.Lock()
+	for _, id := range deviceIDs {
+		// Add if not already present
+		found := false
+		for _, existing := range c.subscriptions {
+			if existing == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.subscriptions = append(c.subscriptions, id)
+		}
+	}
+	c.subscriptionsMu.Unlock()
 
 	msg := map[string]any{
 		"messageType": "subscribe",
@@ -572,7 +675,13 @@ func (c *HubLocalClient) Unsubscribe(ctx context.Context, deviceIDs ...string) e
 }
 
 // SubscribeAll subscribes to events from all devices on the hub.
+// This subscription is tracked and automatically restored after reconnection.
 func (c *HubLocalClient) SubscribeAll(ctx context.Context) error {
+	// Track that we want all subscriptions
+	c.subscriptionsMu.Lock()
+	c.subscribeAll = true
+	c.subscriptionsMu.Unlock()
+
 	msg := map[string]any{
 		"messageType": "subscribeAll",
 	}
@@ -583,4 +692,124 @@ func (c *HubLocalClient) SubscribeAll(ctx context.Context) error {
 	}
 
 	return c.sendFrame(wsOpcodeText, data)
+}
+
+// reconnectLoop handles automatic reconnection with exponential backoff.
+func (c *HubLocalClient) reconnectLoop() {
+	c.reconnectMu.Lock()
+	if c.reconnecting {
+		c.reconnectMu.Unlock()
+		return
+	}
+	c.reconnecting = true
+	c.reconnectMu.Unlock()
+
+	defer func() {
+		c.reconnectMu.Lock()
+		c.reconnecting = false
+		c.reconnectMu.Unlock()
+	}()
+
+	delay := c.reconnectDelay
+	ctx := context.Background()
+
+	for {
+		// Check if manually closed
+		c.reconnectMu.Lock()
+		if c.manualClose {
+			c.reconnectMu.Unlock()
+			return
+		}
+		c.reconnectMu.Unlock()
+
+		// Wait before attempting reconnect
+		time.Sleep(delay)
+
+		// Check again after sleep
+		c.reconnectMu.Lock()
+		if c.manualClose {
+			c.reconnectMu.Unlock()
+			return
+		}
+		c.reconnectMu.Unlock()
+
+		// Reset connection state for reconnect
+		c.connMu.Lock()
+		c.conn = nil
+		c.reader = nil
+		c.done = make(chan struct{})
+		c.connMu.Unlock()
+
+		// Attempt to connect
+		wsURL := fmt.Sprintf("ws://%s:%d/events", c.hubIP, c.hubPort)
+		conn, err := c.dialWebSocket(ctx, wsURL)
+		if err != nil {
+			// Increase delay with exponential backoff
+			delay = time.Duration(float64(delay) * 1.5)
+			if delay > c.reconnectMaxDelay {
+				delay = c.reconnectMaxDelay
+			}
+
+			select {
+			case c.errors <- fmt.Errorf("reconnect failed: %w", err):
+			default:
+			}
+			continue
+		}
+
+		// Connection successful
+		c.connMu.Lock()
+		c.conn = conn
+		c.reader = bufio.NewReader(conn)
+		c.lastPong = time.Now()
+		c.connMu.Unlock()
+
+		// Start read and ping loops
+		go c.readLoop()
+		go c.pingLoop()
+
+		// Restore subscriptions
+		c.subscriptionsMu.RLock()
+		subscribeAll := c.subscribeAll
+		subscriptions := make([]string, len(c.subscriptions))
+		copy(subscriptions, c.subscriptions)
+		c.subscriptionsMu.RUnlock()
+
+		if subscribeAll {
+			if err := c.SubscribeAll(ctx); err != nil {
+				select {
+				case c.errors <- fmt.Errorf("resubscribe all failed: %w", err):
+				default:
+				}
+			}
+		} else if len(subscriptions) > 0 {
+			if err := c.Subscribe(ctx, subscriptions...); err != nil {
+				select {
+				case c.errors <- fmt.Errorf("resubscribe failed: %w", err):
+				default:
+				}
+			}
+		}
+
+		// Call reconnect callback
+		if c.onReconnect != nil {
+			c.onReconnect()
+		}
+
+		return
+	}
+}
+
+// SetReconnectEnabled enables or disables automatic reconnection.
+func (c *HubLocalClient) SetReconnectEnabled(enabled bool) {
+	c.reconnectMu.Lock()
+	c.reconnectEnabled = enabled
+	c.reconnectMu.Unlock()
+}
+
+// IsReconnecting returns true if the client is currently attempting to reconnect.
+func (c *HubLocalClient) IsReconnecting() bool {
+	c.reconnectMu.Lock()
+	defer c.reconnectMu.Unlock()
+	return c.reconnecting
 }

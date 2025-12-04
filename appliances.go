@@ -552,3 +552,331 @@ func IsApplianceRunning(status Status, applianceType string) bool {
 
 	return false
 }
+
+// ==================== Detailed Status Extractors ====================
+// These extractors provide comprehensive status including remoteControlStatus
+// which is critical for determining if the appliance can be controlled remotely.
+
+// extractRemoteControlEnabled checks if remote control is enabled for an appliance.
+// This is CRITICAL - Samsung appliances require this to be enabled on the physical
+// device before they accept remote commands. The setting often resets when the
+// appliance powers off.
+func extractRemoteControlEnabled(status Status) bool {
+	// Try samsungce.remoteControlStatus first (most common)
+	if value, ok := GetString(status, "samsungce.remoteControlStatus", "remoteControlEnabled", "value"); ok {
+		return value == "true"
+	}
+	// Try without namespace
+	if value, ok := GetString(status, "remoteControlStatus", "remoteControlEnabled", "value"); ok {
+		return value == "true"
+	}
+	// Try alternative path structure
+	if remoteCtrl, ok := GetMap(status, "samsungce.remoteControlStatus"); ok {
+		if enabled, ok := GetMap(remoteCtrl, "remoteControlEnabled"); ok {
+			if value, ok := GetString(enabled, "value"); ok {
+				return value == "true"
+			}
+		}
+	}
+	return false
+}
+
+// extractChildLockEnabled checks if the child lock is engaged.
+func extractChildLockEnabled(status Status) bool {
+	// Try samsungce.kidsLock
+	if value, ok := GetString(status, "samsungce.kidsLock", "lockState", "value"); ok {
+		return value == "locked"
+	}
+	// Try alternative path
+	if kidsLock, ok := GetMap(status, "samsungce.kidsLock"); ok {
+		if lockState, ok := GetMap(kidsLock, "lockState"); ok {
+			if value, ok := GetString(lockState, "value"); ok {
+				return value == "locked"
+			}
+		}
+	}
+	return false
+}
+
+// ExtractWasherDetailedStatus extracts comprehensive washer status.
+// This includes operating state, current settings, supported options, and
+// the critical remoteControlEnabled flag for the UI warning banner.
+//
+// Example:
+//
+//	status, _ := client.GetDeviceStatus(ctx, washerID)
+//	washer := st.ExtractWasherDetailedStatus(status)
+//	if !washer.RemoteControlEnabled {
+//	    // Show warning: "Enable Remote Control on the washer to control it"
+//	}
+func ExtractWasherDetailedStatus(status Status) *WasherDetailedStatus {
+	result := &WasherDetailedStatus{
+		State: stateIdle,
+	}
+
+	// Extract remote control status FIRST (critical for UI)
+	result.RemoteControlEnabled = extractRemoteControlEnabled(status)
+
+	// Extract child lock
+	result.ChildLockOn = extractChildLockEnabled(status)
+
+	// Extract operating state from laundry status
+	if laundry := ExtractLaundryStatus(status, ApplianceWasher); laundry != nil {
+		result.State = laundry.State
+		result.RemainingMins = laundry.RemainingMins
+		result.CompletionTime = laundry.CompletionTime
+		result.CycleProgress = laundry.CycleProgress
+	}
+
+	// Extract current cycle
+	// Try samsungce.washerCycle first, then custom.washerCycle
+	if value, ok := GetString(status, "samsungce.washerCycle", "washerCycle", "value"); ok {
+		result.CurrentCycle = value
+	} else if value, ok := GetString(status, "custom.washerCycle", "washerCycle", "value"); ok {
+		result.CurrentCycle = value
+	}
+
+	// Extract supported cycles
+	if arr, ok := GetArray(status, "samsungce.washerCycle", "supportedWasherCycle", "value"); ok {
+		result.SupportedCycles = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "custom.washerCycle", "supportedWasherCycle", "value"); ok {
+		result.SupportedCycles = ToStringSlice(arr)
+	}
+
+	// Extract water temperature
+	if value, ok := GetString(status, "custom.washerWaterTemperature", "washerWaterTemperature", "value"); ok {
+		result.WaterTemperature = value
+	} else if value, ok := GetString(status, "samsungce.washerWaterTemperature", "washerWaterTemperature", "value"); ok {
+		result.WaterTemperature = value
+	}
+
+	// Extract supported water temperatures
+	if arr, ok := GetArray(status, "custom.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
+		result.SupportedWaterTemps = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "samsungce.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
+		result.SupportedWaterTemps = ToStringSlice(arr)
+	}
+
+	// Extract spin level
+	if value, ok := GetString(status, "custom.washerSpinLevel", "washerSpinLevel", "value"); ok {
+		result.SpinLevel = value
+	} else if value, ok := GetString(status, "samsungce.washerSpinLevel", "washerSpinLevel", "value"); ok {
+		result.SpinLevel = value
+	}
+
+	// Extract supported spin levels
+	if arr, ok := GetArray(status, "custom.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
+		result.SupportedSpinLevels = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "samsungce.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
+		result.SupportedSpinLevels = ToStringSlice(arr)
+	}
+
+	// Extract soil level
+	if value, ok := GetString(status, "custom.washerSoilLevel", "washerSoilLevel", "value"); ok {
+		result.SoilLevel = value
+	} else if value, ok := GetString(status, "samsungce.washerSoilLevel", "washerSoilLevel", "value"); ok {
+		result.SoilLevel = value
+	}
+
+	// Extract supported soil levels
+	if arr, ok := GetArray(status, "custom.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
+		result.SupportedSoilLevels = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "samsungce.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
+		result.SupportedSoilLevels = ToStringSlice(arr)
+	}
+
+	return result
+}
+
+// ExtractDryerDetailedStatus extracts comprehensive dryer status.
+// Similar to washer but with dryer-specific fields (temperature, drying level).
+//
+// Example:
+//
+//	status, _ := client.GetDeviceStatus(ctx, dryerID)
+//	dryer := st.ExtractDryerDetailedStatus(status)
+//	if dryer.State == "running" {
+//	    fmt.Printf("Drying: %d mins remaining\n", *dryer.RemainingMins)
+//	}
+func ExtractDryerDetailedStatus(status Status) *DryerDetailedStatus {
+	result := &DryerDetailedStatus{
+		State: stateIdle,
+	}
+
+	// Extract remote control status FIRST (critical for UI)
+	result.RemoteControlEnabled = extractRemoteControlEnabled(status)
+
+	// Extract child lock
+	result.ChildLockOn = extractChildLockEnabled(status)
+
+	// Extract operating state from laundry status
+	if laundry := ExtractLaundryStatus(status, ApplianceDryer); laundry != nil {
+		result.State = laundry.State
+		result.RemainingMins = laundry.RemainingMins
+		result.CompletionTime = laundry.CompletionTime
+		result.CycleProgress = laundry.CycleProgress
+	}
+
+	// Extract current cycle
+	if value, ok := GetString(status, "samsungce.dryerCycle", "dryerCycle", "value"); ok {
+		result.CurrentCycle = value
+	} else if value, ok := GetString(status, "custom.dryerCycle", "dryerCycle", "value"); ok {
+		result.CurrentCycle = value
+	}
+
+	// Extract supported cycles
+	if arr, ok := GetArray(status, "samsungce.dryerCycle", "supportedDryerCycle", "value"); ok {
+		result.SupportedCycles = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "custom.dryerCycle", "supportedDryerCycle", "value"); ok {
+		result.SupportedCycles = ToStringSlice(arr)
+	}
+
+	// Extract drying temperature
+	if value, ok := GetString(status, "samsungce.dryerDryingTemperature", "dryingTemperature", "value"); ok {
+		result.DryingTemperature = value
+	} else if value, ok := GetString(status, "custom.dryerDryingTemperature", "dryingTemperature", "value"); ok {
+		result.DryingTemperature = value
+	}
+
+	// Extract supported temperatures
+	if arr, ok := GetArray(status, "samsungce.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
+		result.SupportedTemperatures = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "custom.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
+		result.SupportedTemperatures = ToStringSlice(arr)
+	}
+
+	// Extract drying level (wrinkleFree, normal, more, less)
+	if value, ok := GetString(status, "samsungce.dryerDryingLevel", "dryingLevel", "value"); ok {
+		result.DryingLevel = value
+	} else if value, ok := GetString(status, "custom.dryerDryingLevel", "dryingLevel", "value"); ok {
+		result.DryingLevel = value
+	}
+
+	// Extract supported drying levels
+	if arr, ok := GetArray(status, "samsungce.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
+		result.SupportedDryingLevels = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "custom.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
+		result.SupportedDryingLevels = ToStringSlice(arr)
+	}
+
+	// Extract drying time if set
+	if value, ok := GetString(status, "samsungce.dryerDryingTime", "dryingTime", "value"); ok {
+		result.DryingTime = value
+	}
+
+	return result
+}
+
+// ExtractDishwasherDetailedStatus extracts comprehensive dishwasher status.
+// Dishwashers have simpler controls than washers/dryers.
+//
+// Example:
+//
+//	status, _ := client.GetDeviceStatus(ctx, dishwasherID)
+//	dishwasher := st.ExtractDishwasherDetailedStatus(status)
+func ExtractDishwasherDetailedStatus(status Status) *DishwasherDetailedStatus {
+	result := &DishwasherDetailedStatus{
+		State: stateIdle,
+	}
+
+	// Extract remote control status FIRST (critical for UI)
+	result.RemoteControlEnabled = extractRemoteControlEnabled(status)
+
+	// Extract child lock
+	result.ChildLockOn = extractChildLockEnabled(status)
+
+	// Extract operating state from laundry status
+	if laundry := ExtractLaundryStatus(status, ApplianceDishwasher); laundry != nil {
+		result.State = laundry.State
+		result.RemainingMins = laundry.RemainingMins
+		result.CompletionTime = laundry.CompletionTime
+		result.CycleProgress = laundry.CycleProgress
+	}
+
+	// Extract current wash course
+	if value, ok := GetString(status, "samsungce.dishwasherWashingCourse", "washingCourse", "value"); ok {
+		result.CurrentCourse = value
+	} else if value, ok := GetString(status, "custom.dishwasherWashingCourse", "washingCourse", "value"); ok {
+		result.CurrentCourse = value
+	}
+
+	// Extract supported courses
+	if arr, ok := GetArray(status, "samsungce.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+		result.SupportedCourses = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "custom.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+		result.SupportedCourses = ToStringSlice(arr)
+	}
+
+	return result
+}
+
+// ExtractRangeDetailedStatus extracts comprehensive range/oven status.
+// Note: Cooktop state is read-only - it cannot be controlled via API for safety.
+//
+// Example:
+//
+//	status, _ := client.GetDeviceStatus(ctx, rangeID)
+//	rangeStatus := st.ExtractRangeDetailedStatus(status)
+//	if rangeStatus.CooktopActive {
+//	    fmt.Println("Warning: Cooktop is on (cannot be controlled remotely)")
+//	}
+func ExtractRangeDetailedStatus(status Status) *RangeDetailedStatus {
+	result := &RangeDetailedStatus{}
+
+	// Extract remote control status FIRST (critical for UI)
+	result.RemoteControlEnabled = extractRemoteControlEnabled(status)
+
+	// Extract child lock
+	result.ChildLockOn = extractChildLockEnabled(status)
+
+	// Use existing ExtractRangeStatus for basic state
+	basic := ExtractRangeStatus(status)
+	result.CooktopActive = basic.CooktopActive
+	result.OvenActive = basic.OvenActive
+	result.OvenTemp = basic.OvenTemp
+	result.OvenTargetTemp = basic.OvenTargetTemp
+
+	// Extract oven mode
+	if value, ok := GetString(status, "ovenMode", "ovenMode", "value"); ok {
+		result.OvenMode = value
+	} else if value, ok := GetString(status, "samsungce.ovenMode", "ovenMode", "value"); ok {
+		result.OvenMode = value
+	}
+
+	// Extract supported oven modes
+	if arr, ok := GetArray(status, "ovenMode", "supportedOvenModes", "value"); ok {
+		result.SupportedOvenModes = ToStringSlice(arr)
+	} else if arr, ok := GetArray(status, "samsungce.ovenMode", "supportedOvenModes", "value"); ok {
+		result.SupportedOvenModes = ToStringSlice(arr)
+	}
+
+	// Extract oven light state
+	if value, ok := GetString(status, "samsungce.lamp", "lampState", "value"); ok {
+		result.OvenLightOn = value == "on"
+	}
+
+	// Extract remaining time from oven operating state
+	if opState, ok := GetMap(status, "ovenOperatingState"); ok {
+		if remainingTime, ok := GetMap(opState, "remainingTime"); ok {
+			if value, ok := GetFloat(remainingTime, "value"); ok && value > 0 {
+				unit, _ := GetString(remainingTime, "unit")
+				mins := convertToMinutes(value, unit)
+				result.RemainingMins = &mins
+			}
+		}
+	}
+
+	// Extract temperature limits if available
+	if setpoint, ok := GetMap(status, "ovenSetpoint"); ok {
+		if minTemp, ok := GetFloat(setpoint, "ovenSetpoint", "range", "minimum"); ok {
+			t := int(minTemp)
+			result.OvenTempMin = &t
+		}
+		if maxTemp, ok := GetFloat(setpoint, "ovenSetpoint", "range", "maximum"); ok {
+			t := int(maxTemp)
+			result.OvenTempMax = &t
+		}
+	}
+
+	return result
+}

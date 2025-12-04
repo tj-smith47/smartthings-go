@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Capability represents a SmartThings capability definition.
@@ -76,6 +77,7 @@ func (c *Client) ListCapabilities(ctx context.Context) ([]CapabilityReference, e
 
 // GetCapability returns a specific capability definition.
 // If version is 0, returns the latest version.
+// Results are cached if caching is enabled.
 func (c *Client) GetCapability(ctx context.Context, capabilityID string, version int) (*Capability, error) {
 	if capabilityID == "" {
 		return nil, ErrEmptyCapabilityID
@@ -86,6 +88,24 @@ func (c *Client) GetCapability(ctx context.Context, capabilityID string, version
 		path += "/" + strconv.Itoa(version)
 	}
 
+	// Use cache if enabled
+	ttl := c.getCapabilityTTL()
+	if ttl > 0 {
+		key := cacheKey("capability", capabilityID, strconv.Itoa(version))
+		result, err := c.getCached(key, ttl, func() (any, error) {
+			return c.fetchCapability(ctx, path)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return result.(*Capability), nil
+	}
+
+	return c.fetchCapability(ctx, path)
+}
+
+// fetchCapability performs the actual API call for GetCapability.
+func (c *Client) fetchCapability(ctx context.Context, path string) (*Capability, error) {
 	data, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err
@@ -97,4 +117,12 @@ func (c *Client) GetCapability(ctx context.Context, capabilityID string, version
 	}
 
 	return &cap, nil
+}
+
+// getCapabilityTTL returns the TTL for capability caching, or 0 if caching is disabled.
+func (c *Client) getCapabilityTTL() time.Duration {
+	if c.cacheConfig == nil {
+		return 0
+	}
+	return c.cacheConfig.CapabilityTTL
 }

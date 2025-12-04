@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // DeviceProfileStatus represents the status of a device profile.
@@ -89,11 +90,30 @@ func (c *Client) ListDeviceProfiles(ctx context.Context) ([]DeviceProfileFull, e
 }
 
 // GetDeviceProfile returns a single device profile by ID.
+// Results are cached if caching is enabled.
 func (c *Client) GetDeviceProfile(ctx context.Context, profileID string) (*DeviceProfileFull, error) {
 	if profileID == "" {
 		return nil, ErrEmptyProfileID
 	}
 
+	// Use cache if enabled
+	ttl := c.getDeviceProfileTTL()
+	if ttl > 0 {
+		key := cacheKey("deviceprofile", profileID)
+		result, err := c.getCached(key, ttl, func() (any, error) {
+			return c.fetchDeviceProfile(ctx, profileID)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return result.(*DeviceProfileFull), nil
+	}
+
+	return c.fetchDeviceProfile(ctx, profileID)
+}
+
+// fetchDeviceProfile performs the actual API call for GetDeviceProfile.
+func (c *Client) fetchDeviceProfile(ctx context.Context, profileID string) (*DeviceProfileFull, error) {
 	data, err := c.get(ctx, "/deviceprofiles/"+profileID)
 	if err != nil {
 		return nil, err
@@ -105,6 +125,14 @@ func (c *Client) GetDeviceProfile(ctx context.Context, profileID string) (*Devic
 	}
 
 	return &profile, nil
+}
+
+// getDeviceProfileTTL returns the TTL for device profile caching, or 0 if caching is disabled.
+func (c *Client) getDeviceProfileTTL() time.Duration {
+	if c.cacheConfig == nil {
+		return 0
+	}
+	return c.cacheConfig.DeviceProfileTTL
 }
 
 // CreateDeviceProfile creates a new device profile.

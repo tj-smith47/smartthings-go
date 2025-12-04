@@ -466,3 +466,63 @@ func TestClient_RateLimitHeaders(t *testing.T) {
 		}
 	})
 }
+
+func TestClient_SetToken(t *testing.T) {
+	client, _ := NewClient("initial-token")
+	if client.token != "initial-token" {
+		t.Errorf("initial token = %q, want initial-token", client.token)
+	}
+
+	client.SetToken("new-token")
+	if client.token != "new-token" {
+		t.Errorf("after SetToken, token = %q, want new-token", client.token)
+	}
+}
+
+func TestClient_patch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("method = %q, want PATCH", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"patched": "true"})
+	}))
+	defer server.Close()
+
+	client, _ := NewClient("token", WithBaseURL(server.URL))
+	data, err := client.patch(context.Background(), "/test", map[string]string{"key": "value"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if data == nil {
+		t.Fatal("expected data")
+	}
+}
+
+func TestIsDeviceOffline(t *testing.T) {
+	t.Run("returns true for ErrDeviceOffline", func(t *testing.T) {
+		if !IsDeviceOffline(ErrDeviceOffline) {
+			t.Error("expected true for ErrDeviceOffline")
+		}
+	})
+
+	t.Run("returns true for 503 API error", func(t *testing.T) {
+		err := &APIError{StatusCode: 503, Message: "Device offline"}
+		if !IsDeviceOffline(err) {
+			t.Error("expected true for 503 status code")
+		}
+	})
+
+	t.Run("returns false for other errors", func(t *testing.T) {
+		err := &APIError{StatusCode: 404, Message: "Not found"}
+		if IsDeviceOffline(err) {
+			t.Error("expected false for 404 status code")
+		}
+	})
+
+	t.Run("returns false for nil", func(t *testing.T) {
+		if IsDeviceOffline(nil) {
+			t.Error("expected false for nil")
+		}
+	})
+}

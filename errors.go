@@ -65,6 +65,55 @@ var (
 	// Device profile validation errors
 	ErrEmptyProfileID   = errors.New("smartthings: profile ID cannot be empty")
 	ErrEmptyProfileName = errors.New("smartthings: profile name cannot be empty")
+
+	// Channel validation errors
+	ErrEmptyChannelID   = errors.New("smartthings: channel ID cannot be empty")
+	ErrEmptyChannelName = errors.New("smartthings: channel name cannot be empty")
+
+	// Driver validation errors
+	ErrEmptyDriverID      = errors.New("smartthings: driver ID cannot be empty")
+	ErrEmptyDriverVersion = errors.New("smartthings: driver version cannot be empty")
+
+	// Hub validation errors
+	ErrEmptyHubID = errors.New("smartthings: hub ID cannot be empty")
+
+	// Device preference validation errors
+	ErrEmptyPreferenceID   = errors.New("smartthings: preference ID cannot be empty")
+	ErrEmptyPreferenceName = errors.New("smartthings: preference name cannot be empty")
+	ErrEmptyLocaleTag      = errors.New("smartthings: locale tag cannot be empty")
+
+	// Driver archive validation errors
+	ErrEmptyDriverArchive = errors.New("smartthings: driver archive cannot be empty")
+
+	// Schema app/invitation validation errors
+	ErrEmptySchemaAppID   = errors.New("smartthings: schema app ID cannot be empty")
+	ErrEmptyInvitationID  = errors.New("smartthings: invitation ID cannot be empty")
+
+	// Notification validation errors
+	ErrEmptyNotificationRequest  = errors.New("smartthings: notification request cannot be nil")
+	ErrEmptyNotificationType     = errors.New("smartthings: notification type cannot be empty")
+	ErrEmptyNotificationMessages = errors.New("smartthings: notification messages cannot be empty")
+
+	// Organization validation errors
+	ErrEmptyOrganizationID = errors.New("smartthings: organization ID cannot be empty")
+
+	// Presentation validation errors
+	ErrEmptyPresentationID     = errors.New("smartthings: presentation ID cannot be empty")
+	ErrEmptyPresentationConfig = errors.New("smartthings: presentation config cannot be nil")
+
+	// Schema validation errors
+	ErrEmptySchemaAppName        = errors.New("smartthings: schema app name cannot be empty")
+	ErrEmptyInstalledSchemaAppID = errors.New("smartthings: installed schema app ID cannot be empty")
+
+	// Service subscription validation errors
+	ErrEmptyServiceSubscriptionRequest = errors.New("smartthings: service subscription request cannot be nil")
+	ErrEmptyServiceCapability          = errors.New("smartthings: service capability cannot be empty")
+	ErrEmptyServiceCapabilities        = errors.New("smartthings: service capabilities cannot be empty")
+
+	// Virtual device validation errors
+	ErrEmptyVirtualDeviceName = errors.New("smartthings: virtual device name cannot be empty")
+	ErrEmptyPrototype         = errors.New("smartthings: prototype cannot be empty")
+	ErrEmptyEvents            = errors.New("smartthings: events cannot be empty")
 )
 
 // APIError represents an error response from the SmartThings API.

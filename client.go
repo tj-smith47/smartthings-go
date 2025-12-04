@@ -63,6 +63,7 @@ type Client struct {
 	rateLimitCallback RateLimitCallback
 	lastRateLimit     *RateLimitInfo
 	rateLimitMu       sync.RWMutex
+	cacheConfig       *CacheConfig
 }
 
 // Option configures a Client.

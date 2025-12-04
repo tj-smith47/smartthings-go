@@ -221,7 +221,7 @@ func (c *OAuthClient) GetAuthorizationURL(state string) string {
 func (c *OAuthClient) ExchangeCode(ctx context.Context, code string) error {
 	tokens, err := ExchangeCode(ctx, c.config, code)
 	if err != nil {
-		return fmt.Errorf("failed to exchange code: %w", err)
+		return fmt.Errorf("ExchangeCode: %w", err)
 	}
 
 	return c.SetTokens(ctx, tokens)

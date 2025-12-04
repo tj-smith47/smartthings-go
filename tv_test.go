@@ -685,3 +685,43 @@ func TestCommonTVApps(t *testing.T) {
 		t.Error("CommonTVApps should include Netflix")
 	}
 }
+
+func TestSetTVChannel_EmptyChannel(t *testing.T) {
+	client, _ := NewClient("token")
+	err := client.SetTVChannel(context.Background(), "tv-1", -1)
+	if err != ErrInvalidChannel {
+		t.Errorf("expected ErrInvalidChannel, got %v", err)
+	}
+}
+
+func TestSetTVInput_EmptyInputID(t *testing.T) {
+	client, _ := NewClient("token")
+	err := client.SetTVInput(context.Background(), "tv-1", "")
+	if err != ErrEmptyInputID {
+		t.Errorf("expected ErrEmptyInputID, got %v", err)
+	}
+}
+
+func TestSetPictureMode_EmptyMode(t *testing.T) {
+	client, _ := NewClient("token")
+	err := client.SetPictureMode(context.Background(), "tv-1", "")
+	if err != ErrEmptyMode {
+		t.Errorf("expected ErrEmptyMode, got %v", err)
+	}
+}
+
+func TestSetSoundMode_EmptyMode(t *testing.T) {
+	client, _ := NewClient("token")
+	err := client.SetSoundMode(context.Background(), "tv-1", "")
+	if err != ErrEmptyMode {
+		t.Errorf("expected ErrEmptyMode, got %v", err)
+	}
+}
+
+func TestLaunchTVApp_EmptyAppID(t *testing.T) {
+	client, _ := NewClient("token")
+	err := client.LaunchTVApp(context.Background(), "tv-1", "")
+	if err != ErrEmptyAppID {
+		t.Errorf("expected ErrEmptyAppID, got %v", err)
+	}
+}

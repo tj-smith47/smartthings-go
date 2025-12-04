@@ -1,6 +1,71 @@
 package smartthings
 
-import "math"
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+)
+
+// unmarshalResponse unmarshals JSON data with consistent error formatting.
+// This helper reduces boilerplate across all API response parsing.
+func unmarshalResponse[T any](data []byte, resourceName string) (*T, error) {
+	var resp T
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w (body: %s)", resourceName, err, truncatePreview(data))
+	}
+	return &resp, nil
+}
+
+// truncatePreview returns a truncated string for error messages.
+func truncatePreview(data []byte) string {
+	s := string(data)
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
+}
+
+// findCapability searches status for a capability, checking multiple namespaces.
+// It tries exact match first, then samsungce.*, custom.*, and samsung.* namespaces.
+func findCapability(status Status, names ...string) (map[string]any, string) {
+	namespaces := []string{"", "samsungce.", "custom.", "samsung."}
+	for _, name := range names {
+		for _, ns := range namespaces {
+			fullName := ns + name
+			if cap, ok := GetMap(status, fullName); ok {
+				return cap, fullName
+			}
+		}
+	}
+	return nil, ""
+}
+
+// DiscoverCapabilities returns all capability names found in a device status.
+// Useful for debugging and discovering what capabilities a device supports.
+func DiscoverCapabilities(status Status) []string {
+	caps := make([]string, 0, len(status))
+	for key := range status {
+		caps = append(caps, key)
+	}
+	sort.Strings(caps)
+	return caps
+}
+
+// FindOperatingStateCapabilities discovers all *OperatingState capabilities in a status.
+// Returns a map of capability name to capability data.
+func FindOperatingStateCapabilities(status Status) map[string]map[string]any {
+	result := make(map[string]map[string]any)
+	for key, value := range status {
+		if strings.HasSuffix(key, "OperatingState") || strings.Contains(key, "operatingState") {
+			if capData, ok := value.(map[string]any); ok {
+				result[key] = capData
+			}
+		}
+	}
+	return result
+}
 
 // GetString navigates a nested map and returns a string value.
 // Returns the value and true if found, or empty string and false if not.

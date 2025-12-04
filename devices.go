@@ -8,15 +8,6 @@ import (
 	"strconv"
 )
 
-// truncatePreview returns a truncated string for error messages.
-func truncatePreview(data []byte) string {
-	s := string(data)
-	if len(s) > 200 {
-		return s[:200] + "..."
-	}
-	return s
-}
-
 // ListDevices returns all devices associated with the account.
 // For pagination support, use ListDevicesWithOptions instead.
 func (c *Client) ListDevices(ctx context.Context) ([]Device, error) {

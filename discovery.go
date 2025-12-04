@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -391,43 +392,37 @@ func extractModel(server string) string {
 // DiscoverAll performs discovery for all supported device types.
 // Returns hubs and TVs found on the local network.
 func (d *Discovery) DiscoverAll(ctx context.Context) ([]DiscoveredHub, []DiscoveredTV, error) {
-	hubsChan := make(chan []DiscoveredHub, 1)
-	tvsChan := make(chan []DiscoveredTV, 1)
-	errChan := make(chan error, 2)
+	var (
+		wg         sync.WaitGroup
+		hubs       []DiscoveredHub
+		tvs        []DiscoveredTV
+		hubsErr    error
+		tvsErr     error
+		mu         sync.Mutex
+	)
 
-	// Discover hubs in parallel
-	go func() {
-		hubs, err := d.FindHubs(ctx)
-		if err != nil {
-			errChan <- err
-			hubsChan <- nil
-			return
-		}
-		errChan <- nil
-		hubsChan <- hubs
-	}()
+	// Go 1.25: Use WaitGroup.Go() for parallel discovery
+	wg.Go(func() {
+		result, err := d.FindHubs(ctx)
+		mu.Lock()
+		hubs = result
+		hubsErr = err
+		mu.Unlock()
+	})
 
-	// Discover TVs in parallel
-	go func() {
-		tvs, err := d.FindTVs(ctx)
-		if err != nil {
-			errChan <- err
-			tvsChan <- nil
-			return
-		}
-		errChan <- nil
-		tvsChan <- tvs
-	}()
+	wg.Go(func() {
+		result, err := d.FindTVs(ctx)
+		mu.Lock()
+		tvs = result
+		tvsErr = err
+		mu.Unlock()
+	})
 
-	// Wait for both
-	hubs := <-hubsChan
-	tvs := <-tvsChan
-	err1 := <-errChan
-	err2 := <-errChan
+	wg.Wait()
 
 	// Return first error if any
-	if err1 != nil {
-		return hubs, tvs, err1
+	if hubsErr != nil {
+		return hubs, tvs, hubsErr
 	}
-	return hubs, tvs, err2
+	return hubs, tvs, tvsErr
 }

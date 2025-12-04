@@ -219,3 +219,42 @@ type BrilliantDeviceStatus struct {
 	Type       string `json:"type"`       // "switch", "dimmer"
 	Brightness *int   `json:"brightness"` // 0-100 for dimmers
 }
+
+// GenericApplianceStatus provides a unified status structure for ANY Samsung appliance.
+// This works with washers, dryers, dishwashers, microwaves, air conditioners,
+// robot vacuums, air purifiers, ovens, and other Samsung CE devices.
+// Use ExtractGenericApplianceStatus to auto-discover capabilities from any device.
+type GenericApplianceStatus struct {
+	// State is the operating state (e.g., "idle", "running", "paused", "finished").
+	State string `json:"state"`
+
+	// RemainingMins is the time remaining in minutes (if applicable).
+	RemainingMins *int `json:"remaining_mins,omitempty"`
+
+	// CompletionTime is the ISO8601 completion timestamp (if applicable).
+	CompletionTime *string `json:"completion_time,omitempty"`
+
+	// Progress is the cycle progress 0-100% (if applicable).
+	Progress *int `json:"progress,omitempty"`
+
+	// Temperature is the current temperature in Fahrenheit (if applicable).
+	Temperature *int `json:"temperature,omitempty"`
+
+	// TargetTemp is the target temperature in Fahrenheit (if applicable).
+	TargetTemp *int `json:"target_temp,omitempty"`
+
+	// Mode is the current operating mode (e.g., "cooling", "heating", "auto").
+	Mode string `json:"mode,omitempty"`
+
+	// PowerConsumption is the current power usage in watts (if available).
+	PowerConsumption *float64 `json:"power_consumption,omitempty"`
+
+	// DoorOpen indicates if any door/lid is open (if applicable).
+	DoorOpen bool `json:"door_open,omitempty"`
+
+	// Extra contains additional capability-specific data that doesn't fit standard fields.
+	Extra map[string]any `json:"extra,omitempty"`
+
+	// DiscoveredCapabilities lists all capability names found on the device.
+	DiscoveredCapabilities []string `json:"discovered_capabilities,omitempty"`
+}

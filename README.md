@@ -62,7 +62,8 @@ func main() {
 - **Response caching** for capabilities and device profiles
 - **SSDP discovery** for local SmartThings hubs and Samsung TVs
 - **TV control** (power, volume, input, apps, picture/sound modes)
-- **Appliance status** extraction (washer, dryer, dishwasher, range, refrigerator)
+- **Generalized appliance status** extraction for any Samsung CE device
+- **Auto-discovery** of device capabilities
 
 ## Authentication Methods
 
@@ -495,21 +496,36 @@ client.SetSoundMode(ctx, tvDeviceID, "Standard")
 ### Appliance Status
 
 ```go
-// Get washer/dryer/dishwasher status
-status, _ := client.GetDeviceStatus(ctx, washerDeviceID)
+// Generic extraction works with ANY Samsung appliance (recommended)
+status, _ := client.GetDeviceStatus(ctx, deviceID)
+appStatus := st.ExtractGenericApplianceStatus(status)
+if appStatus.State == "running" {
+    fmt.Printf("Running: %d mins remaining\n", *appStatus.RemainingMins)
+}
+// Discover what capabilities a device has
+fmt.Printf("Capabilities: %v\n", appStatus.DiscoveredCapabilities)
+
+// Type-specific extraction for washer/dryer/dishwasher
 laundryStatus := st.ExtractLaundryStatus(status, st.ApplianceWasher)
 if laundryStatus != nil && laundryStatus.State == "running" {
     fmt.Printf("Washing: %d mins remaining\n", *laundryStatus.RemainingMins)
 }
 
 // Get range status
-status, _ := client.GetDeviceStatus(ctx, rangeDeviceID)
 rangeStatus := st.ExtractRangeStatus(status)
 if rangeStatus.OvenActive {
     fmt.Printf("Oven: %d°F (target: %d°F)\n",
         *rangeStatus.OvenTemp, *rangeStatus.OvenTargetTemp)
 }
 ```
+
+**Supported Appliances:**
+- Washers, Dryers, Dishwashers
+- Ranges/Ovens, Microwaves
+- Refrigerators
+- Air Conditioners, Air Purifiers
+- Robot Vacuums
+- Any Samsung CE device with standard capabilities
 
 ### Helper Functions
 
@@ -596,15 +612,13 @@ The library is designed to be safe for concurrent use:
 // Client is safe to share across goroutines
 client, _ := st.NewClient("your-token")
 
-// Concurrent device polling
+// Concurrent device polling (Go 1.22+: loop variables captured correctly)
 var wg sync.WaitGroup
 for _, deviceID := range deviceIDs {
-    wg.Add(1)
-    go func(id string) {
-        defer wg.Done()
-        status, err := client.GetDeviceStatus(ctx, id)
+    wg.Go(func() {
+        status, err := client.GetDeviceStatus(ctx, deviceID)
         // Process status...
-    }(deviceID)
+    })
 }
 wg.Wait()
 ```

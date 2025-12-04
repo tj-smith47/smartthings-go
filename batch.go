@@ -89,16 +89,14 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 		default:
 		}
 
-		wg.Add(1)
-		go func(idx int, bc BatchCommand) {
-			defer wg.Done()
-
+		// Go 1.25: Use WaitGroup.Go() - loop variables are captured correctly
+		wg.Go(func() {
 			// Acquire semaphore
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
-				results[idx] = BatchResult{DeviceID: bc.DeviceID, Error: ctx.Err()}
+				results[i] = BatchResult{DeviceID: cmd.DeviceID, Error: ctx.Err()}
 				return
 			}
 
@@ -106,14 +104,14 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 			mu.Lock()
 			if stopped {
 				mu.Unlock()
-				results[idx] = BatchResult{DeviceID: bc.DeviceID, Error: context.Canceled}
+				results[i] = BatchResult{DeviceID: cmd.DeviceID, Error: context.Canceled}
 				return
 			}
 			mu.Unlock()
 
 			// Execute commands
-			err := c.ExecuteCommands(ctx, bc.DeviceID, bc.Commands)
-			results[idx] = BatchResult{DeviceID: bc.DeviceID, Error: err}
+			err := c.ExecuteCommands(ctx, cmd.DeviceID, cmd.Commands)
+			results[i] = BatchResult{DeviceID: cmd.DeviceID, Error: err}
 
 			// Handle stop on error
 			if err != nil && cfg.StopOnError {
@@ -121,7 +119,7 @@ func (c *Client) ExecuteCommandsBatch(ctx context.Context, batch []BatchCommand,
 				stopped = true
 				mu.Unlock()
 			}
-		}(i, cmd)
+		})
 	}
 
 	wg.Wait()
@@ -190,27 +188,25 @@ func (c *Client) GetDeviceStatusBatch(ctx context.Context, deviceIDs []string, c
 		default:
 		}
 
-		wg.Add(1)
-		go func(idx int, id string) {
-			defer wg.Done()
-
+		// Go 1.25: Use WaitGroup.Go() - loop variables are captured correctly
+		wg.Go(func() {
 			// Acquire semaphore
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
-				results[idx] = BatchStatusResult{DeviceID: id, Error: ctx.Err()}
+				results[i] = BatchStatusResult{DeviceID: deviceID, Error: ctx.Err()}
 				return
 			}
 
 			// Fetch status
-			status, err := c.GetDeviceFullStatus(ctx, id)
-			results[idx] = BatchStatusResult{
-				DeviceID:   id,
+			status, err := c.GetDeviceFullStatus(ctx, deviceID)
+			results[i] = BatchStatusResult{
+				DeviceID:   deviceID,
 				Components: status,
 				Error:      err,
 			}
-		}(i, deviceID)
+		})
 	}
 
 	wg.Wait()

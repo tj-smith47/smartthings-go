@@ -488,28 +488,6 @@ func TestExtractRefrigeratorStatus(t *testing.T) {
 	})
 }
 
-func TestExtractTVFields(t *testing.T) {
-	status := Status{
-		"switch": map[string]any{
-			"switch": map[string]any{"value": "on"},
-		},
-		"audioVolume": map[string]any{
-			"volume": map[string]any{"value": float64(25)},
-		},
-	}
-
-	result := ExtractTVFields(status)
-	if result == nil {
-		t.Fatal("result is nil")
-	}
-	if result.Power != "on" {
-		t.Errorf("Power = %q, want %q", result.Power, "on")
-	}
-	if result.Volume != 25 {
-		t.Errorf("Volume = %d, want 25", result.Volume)
-	}
-}
-
 func TestGetApplianceState(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -731,4 +709,154 @@ func TestExtractBrilliantStatus(t *testing.T) {
 			t.Error("IsOn should be false")
 		}
 	})
+}
+
+func TestExtractGenericApplianceStatus(t *testing.T) {
+	t.Run("washer running with all fields", func(t *testing.T) {
+		status := Status{
+			"samsungce.washerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+				"remainingTime": map[string]any{
+					"value": float64(30),
+					"unit":  "min",
+				},
+				"completionTime": map[string]any{
+					"value": "2025-12-04T15:30:00Z",
+				},
+				"progress": map[string]any{"value": float64(45)},
+			},
+			"temperatureMeasurement": map[string]any{
+				"temperature": map[string]any{"value": float64(40)}, // 40C
+			},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if result.State != "running" {
+			t.Errorf("State = %q, want %q", result.State, "running")
+		}
+		if result.RemainingMins == nil || *result.RemainingMins != 30 {
+			t.Errorf("RemainingMins = %v, want 30", result.RemainingMins)
+		}
+		if result.Progress == nil || *result.Progress != 45 {
+			t.Errorf("Progress = %v, want 45", result.Progress)
+		}
+		if result.CompletionTime == nil || *result.CompletionTime != "2025-12-04T15:30:00Z" {
+			t.Errorf("CompletionTime = %v, want 2025-12-04T15:30:00Z", result.CompletionTime)
+		}
+		if result.Temperature == nil {
+			t.Error("Temperature should not be nil")
+		} else if *result.Temperature != 104 { // 40C = 104F
+			t.Errorf("Temperature = %d, want 104", *result.Temperature)
+		}
+	})
+
+	t.Run("air conditioner with mode", func(t *testing.T) {
+		status := Status{
+			"samsungce.airConditionerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "running"},
+			},
+			"airConditionerMode": map[string]any{
+				"airConditionerMode": map[string]any{"value": "cooling"},
+			},
+			"temperatureMeasurement": map[string]any{
+				"temperature": map[string]any{"value": float64(25)}, // 25C
+			},
+			"thermostatCoolingSetpoint": map[string]any{
+				"coolingSetpoint": map[string]any{"value": float64(72)}, // Already F
+			},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if result.State != "running" {
+			t.Errorf("State = %q, want %q", result.State, "running")
+		}
+		if result.Mode != "cooling" {
+			t.Errorf("Mode = %q, want %q", result.Mode, "cooling")
+		}
+		if result.Temperature == nil {
+			t.Error("Temperature should not be nil")
+		}
+	})
+
+	t.Run("idle appliance", func(t *testing.T) {
+		status := Status{
+			"samsungce.dryerOperatingState": map[string]any{
+				"machineState": map[string]any{"value": "idle"},
+			},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if result.State != "idle" {
+			t.Errorf("State = %q, want %q", result.State, "idle")
+		}
+	})
+
+	t.Run("empty status returns idle", func(t *testing.T) {
+		result := ExtractGenericApplianceStatus(Status{})
+		if result.State != "idle" {
+			t.Errorf("State = %q, want %q", result.State, "idle")
+		}
+	})
+
+	t.Run("discovers capabilities", func(t *testing.T) {
+		status := Status{
+			"switch":             map[string]any{},
+			"temperatureMeasurement": map[string]any{},
+			"powerMeter":         map[string]any{},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if len(result.DiscoveredCapabilities) != 3 {
+			t.Errorf("DiscoveredCapabilities count = %d, want 3", len(result.DiscoveredCapabilities))
+		}
+	})
+
+	t.Run("extracts door open status", func(t *testing.T) {
+		status := Status{
+			"contactSensor": map[string]any{
+				"contact": map[string]any{"value": "open"},
+			},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if !result.DoorOpen {
+			t.Error("DoorOpen should be true")
+		}
+	})
+
+	t.Run("extracts power consumption", func(t *testing.T) {
+		status := Status{
+			"powerMeter": map[string]any{
+				"power": map[string]any{"value": float64(150.5)},
+			},
+		}
+
+		result := ExtractGenericApplianceStatus(status)
+		if result.PowerConsumption == nil {
+			t.Error("PowerConsumption should not be nil")
+		} else if *result.PowerConsumption != 150.5 {
+			t.Errorf("PowerConsumption = %f, want 150.5", *result.PowerConsumption)
+		}
+	})
+}
+
+func TestConvertToMinutes(t *testing.T) {
+	tests := []struct {
+		value float64
+		unit  string
+		want  int
+	}{
+		{45, "min", 45},
+		{2, "h", 120},
+		{90, "s", 2},   // Rounds up
+		{120, "", 2},   // Default to seconds
+		{-10, "min", 0}, // Negative returns 0
+	}
+
+	for _, tt := range tests {
+		got := convertToMinutes(tt.value, tt.unit)
+		if got != tt.want {
+			t.Errorf("convertToMinutes(%f, %q) = %d, want %d", tt.value, tt.unit, got, tt.want)
+		}
+	}
 }

@@ -126,3 +126,39 @@ func (c *Client) getCapabilityTTL() time.Duration {
 	}
 	return c.cacheConfig.CapabilityTTL
 }
+
+// CapabilityNamespace represents the namespace of a capability.
+type CapabilityNamespace string
+
+// Capability namespace constants.
+const (
+	CapabilityNamespaceSmartThings CapabilityNamespace = "st"
+	CapabilityNamespaceCustom      CapabilityNamespace = "custom"
+)
+
+// ListCapabilitiesOptions contains options for listing capabilities.
+type ListCapabilitiesOptions struct {
+	// Namespace filters capabilities by namespace ("st" for standard, "custom" for custom).
+	Namespace CapabilityNamespace
+}
+
+// ListCapabilitiesWithOptions returns capabilities with filtering options.
+func (c *Client) ListCapabilitiesWithOptions(ctx context.Context, opts *ListCapabilitiesOptions) ([]CapabilityReference, error) {
+	path := "/capabilities"
+	if opts != nil && opts.Namespace != "" {
+		path += "?namespace=" + string(opts.Namespace)
+	}
+
+	data, err := c.get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp capabilityListResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse capability list: %w (body: %s)", err, truncatePreview(data))
+	}
+
+	return resp.Items, nil
+}
+

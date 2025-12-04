@@ -200,7 +200,7 @@ func (c *Client) UploadDriver(ctx context.Context, archiveData []byte) (*EdgeDri
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, c.handleError(resp.StatusCode, respBody)
+		return nil, c.handleError(resp.StatusCode, respBody, resp.Header)
 	}
 
 	var driver EdgeDriver

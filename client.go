@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -64,6 +65,7 @@ type Client struct {
 	lastRateLimit     *RateLimitInfo
 	rateLimitMu       sync.RWMutex
 	cacheConfig       *CacheConfig
+	logger            *slog.Logger
 }
 
 // Option configures a Client.
@@ -127,6 +129,7 @@ func NewClient(token string, opts ...Option) (*Client, error) {
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     90 * time.Second,
 				DisableKeepAlives:   false,
+				ForceAttemptHTTP2:   true,
 			},
 		},
 	}
@@ -177,7 +180,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, c.handleError(resp.StatusCode, respBody)
+		return nil, c.handleError(resp.StatusCode, respBody, resp.Header)
 	}
 
 	return respBody, nil
@@ -226,14 +229,22 @@ func (c *Client) parseRateLimitHeaders(header http.Header) {
 }
 
 // handleError converts HTTP error responses to appropriate errors.
-func (c *Client) handleError(statusCode int, body []byte) error {
+func (c *Client) handleError(statusCode int, body []byte, headers http.Header) error {
 	switch statusCode {
 	case http.StatusUnauthorized:
 		return ErrUnauthorized
 	case http.StatusNotFound:
 		return ErrNotFound
 	case http.StatusTooManyRequests:
-		return ErrRateLimited
+		// Return detailed rate limit error with Retry-After info
+		retryAfter := parseRetryAfter(headers.Get("Retry-After"))
+		c.rateLimitMu.RLock()
+		info := c.lastRateLimit
+		c.rateLimitMu.RUnlock()
+		return &RateLimitError{
+			RetryAfter: retryAfter,
+			Info:       info,
+		}
 	case http.StatusServiceUnavailable:
 		return ErrDeviceOffline
 	default:

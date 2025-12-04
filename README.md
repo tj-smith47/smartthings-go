@@ -375,11 +375,13 @@ case "UNINSTALL":
 // List all capabilities
 caps, err := client.ListCapabilities(ctx)
 
+// List capabilities by namespace (standard vs custom)
+caps, err := client.ListCapabilitiesWithOptions(ctx, &st.ListCapabilitiesOptions{
+    Namespace: st.CapabilityNamespaceSmartThings, // "st" for standard, "custom" for custom
+})
+
 // Get capability definition
 cap, err := client.GetCapability(ctx, "switch", 1)
-
-// List capabilities by category
-caps, err := client.ListCapabilitiesByCategory(ctx, "Lights")
 ```
 
 ### Apps & Installed Apps
@@ -399,8 +401,24 @@ installs, err := client.ListInstalledApps(ctx, locationID)
 // Get specific installation
 install, err := client.GetInstalledApp(ctx, installedAppID)
 
-// Get installation configuration
-config, err := client.GetInstalledAppConfig(ctx, installedAppID)
+// Get current (authorized) configuration
+config, err := client.GetCurrentInstalledAppConfig(ctx, installedAppID)
+if config != nil {
+    // Access config values
+    for name, entries := range config.Config {
+        for _, entry := range entries {
+            if entry.DeviceConfig != nil {
+                fmt.Printf("Device: %s\n", entry.DeviceConfig.DeviceID)
+            }
+        }
+    }
+}
+
+// List all configurations
+configs, err := client.ListInstalledAppConfigs(ctx, installedAppID)
+
+// Get specific configuration by ID
+config, err := client.GetInstalledAppConfig(ctx, installedAppID, configID)
 
 // Delete installation
 err := client.DeleteInstalledApp(ctx, installedAppID)
@@ -432,10 +450,16 @@ err := client.DeleteSchedule(ctx, installedAppID, scheduleName)
 Send push notifications to SmartThings app users:
 
 ```go
-// Send a notification
-err := client.SendNotification(ctx, locationID, &st.NotificationRequest{
-    Message: "Your laundry is done!",
-    Title:   "Washer Complete",
+// Send a push notification
+resp, err := client.CreateNotification(ctx, &st.NotificationRequest{
+    LocationID: locationID,
+    Type:       st.NotificationTypeAlert,
+    Messages: map[string]st.NotificationMessage{
+        "en": {
+            Title: "Washer Complete",
+            Body:  "Your laundry is done!",
+        },
+    },
 })
 ```
 
@@ -608,6 +632,137 @@ When rate limited:
 - Library retries with exponential backoff
 - `IsRateLimited(err)` returns true for rate limit errors
 - Consider spreading requests over time for bulk operations
+
+### Enhanced Rate Limit Handling
+
+Get detailed rate limit information:
+
+```go
+// RateLimitError includes Retry-After duration
+var rle *st.RateLimitError
+if errors.As(err, &rle) {
+    fmt.Printf("Retry after: %v\n", rle.RetryAfter)
+}
+
+// Wait for rate limit to reset
+if err := client.WaitForRateLimit(ctx); err != nil {
+    return err // Context canceled
+}
+
+// Preemptive throttling
+if client.ShouldThrottle(10) { // Threshold of 10 remaining
+    time.Sleep(time.Second)
+}
+
+// Automatic throttling for bulk operations
+throttler := st.NewRateLimitThrottler(client, 10, 100*time.Millisecond)
+for _, deviceID := range devices {
+    throttler.Wait(ctx)
+    client.ExecuteCommand(ctx, deviceID, cmd)
+}
+```
+
+## Batch Operations
+
+Execute commands on multiple devices concurrently:
+
+```go
+// Same command to multiple devices
+cmd := st.Command{Capability: "switch", Command: "on"}
+results := client.ExecuteCommandBatch(ctx, []string{"device1", "device2", "device3"}, cmd, nil)
+
+for _, r := range results {
+    if r.Error != nil {
+        log.Printf("Device %s failed: %v", r.DeviceID, r.Error)
+    }
+}
+
+// Different commands to different devices
+batch := []st.BatchCommand{
+    {DeviceID: "light1", Commands: []st.Command{{Capability: "switch", Command: "on"}}},
+    {DeviceID: "light2", Commands: []st.Command{{Capability: "switchLevel", Command: "setLevel", Arguments: []any{50}}}},
+}
+results := client.ExecuteCommandsBatch(ctx, batch, &st.BatchConfig{
+    MaxConcurrent: 5,   // Limit concurrent API calls
+    StopOnError:   false, // Continue on errors
+})
+
+// Fetch status for multiple devices
+statusResults := client.GetDeviceStatusBatch(ctx, deviceIDs, nil)
+```
+
+## Structured Logging
+
+Enable structured logging with Go's `log/slog`:
+
+```go
+import "log/slog"
+
+// Option 1: Add logger to existing client
+logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+client, _ := st.NewClient("token", st.WithLogger(logger))
+
+// Option 2: Create client with request/response logging
+logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+client, _ := st.NewLoggingClient("token", logger)
+
+// Manual logging helpers
+client.LogDeviceCommand(ctx, deviceID, "switch", "on", nil)
+client.LogRateLimit(ctx, st.RateLimitInfo{Remaining: 50})
+
+// Webhook event logging
+st.LogWebhookEvent(logger, ctx, event, nil)
+```
+
+## Performance
+
+### HTTP/2 Support
+
+The library automatically uses HTTP/2 for connections to the SmartThings API, providing:
+- Multiplexed requests over a single connection
+- Header compression
+- Reduced latency for concurrent requests
+
+### Connection Pooling
+
+Default transport settings (optimized for typical usage):
+
+```go
+// These are the default settings - no configuration needed
+Transport: &http.Transport{
+    MaxIdleConns:        100,  // Total idle connections across all hosts
+    MaxIdleConnsPerHost: 10,   // Idle connections per host
+    IdleConnTimeout:     90s,  // Close idle connections after 90s
+    ForceAttemptHTTP2:   true, // Use HTTP/2 when available
+}
+```
+
+For high-throughput applications, customize with `WithHTTPClient`:
+
+```go
+transport := &http.Transport{
+    MaxIdleConns:        200,
+    MaxIdleConnsPerHost: 50,  // More connections for parallel requests
+    IdleConnTimeout:     120 * time.Second,
+    ForceAttemptHTTP2:   true,
+}
+
+client, _ := st.NewClient("token",
+    st.WithHTTPClient(&http.Client{
+        Transport: transport,
+        Timeout:   60 * time.Second,
+    }),
+)
+```
+
+### Best Practices
+
+1. **Reuse the client** - Create one client and share it across goroutines
+2. **Use iterators for large lists** - Automatic pagination without loading all items
+3. **Enable caching** - Reduces API calls for capabilities and device profiles
+4. **Batch commands** - Use `ExecuteCommands` for multiple commands to one device
 
 ## SmartThings API Reference
 

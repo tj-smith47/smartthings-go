@@ -67,19 +67,8 @@ type ConfigurationData struct {
 }
 
 // ConfigMap represents SmartApp configuration values.
+// ConfigEntry is defined in installedapps.go with full support for all config types.
 type ConfigMap map[string][]ConfigEntry
-
-// ConfigEntry represents a single configuration value.
-type ConfigEntry struct {
-	ValueType    string `json:"valueType"`
-	StringConfig *struct {
-		Value string `json:"value"`
-	} `json:"stringConfig,omitempty"`
-	DeviceConfig *struct {
-		DeviceID    string `json:"deviceId"`
-		ComponentID string `json:"componentId,omitempty"`
-	} `json:"deviceConfig,omitempty"`
-}
 
 // InstallData contains data for INSTALL lifecycle events.
 type InstallData struct {

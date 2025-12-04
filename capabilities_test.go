@@ -232,3 +232,85 @@ func TestClient_GetCapability(t *testing.T) {
 func ptrFloat64(f float64) *float64 {
 	return &f
 }
+
+func TestClient_ListCapabilitiesWithOptions(t *testing.T) {
+	t.Run("with namespace filter", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/capabilities" {
+				t.Errorf("path = %q, want %q", r.URL.Path, "/capabilities")
+			}
+			if ns := r.URL.Query().Get("namespace"); ns != "st" {
+				t.Errorf("namespace query = %q, want %q", ns, "st")
+			}
+			resp := capabilityListResponse{
+				Items: []CapabilityReference{
+					{ID: "switch", Version: 1, Status: "live"},
+					{ID: "temperatureMeasurement", Version: 1, Status: "live"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		caps, err := client.ListCapabilitiesWithOptions(context.Background(), &ListCapabilitiesOptions{
+			Namespace: CapabilityNamespaceSmartThings,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(caps) != 2 {
+			t.Errorf("got %d capabilities, want 2", len(caps))
+		}
+	})
+
+	t.Run("with custom namespace", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if ns := r.URL.Query().Get("namespace"); ns != "custom" {
+				t.Errorf("namespace query = %q, want %q", ns, "custom")
+			}
+			resp := capabilityListResponse{
+				Items: []CapabilityReference{
+					{ID: "myCustomCapability", Version: 1, Status: "live"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		caps, err := client.ListCapabilitiesWithOptions(context.Background(), &ListCapabilitiesOptions{
+			Namespace: CapabilityNamespaceCustom,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(caps) != 1 {
+			t.Errorf("got %d capabilities, want 1", len(caps))
+		}
+	})
+
+	t.Run("without options", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if ns := r.URL.Query().Get("namespace"); ns != "" {
+				t.Errorf("namespace query should be empty, got %q", ns)
+			}
+			resp := capabilityListResponse{
+				Items: []CapabilityReference{
+					{ID: "switch", Version: 1, Status: "live"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		caps, err := client.ListCapabilitiesWithOptions(context.Background(), nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(caps) != 1 {
+			t.Errorf("got %d capabilities, want 1", len(caps))
+		}
+	})
+}

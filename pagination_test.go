@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestClient_ListDevicesWithOptions(t *testing.T) {
@@ -462,6 +463,70 @@ func TestClient_DevicesIterator(t *testing.T) {
 			t.Errorf("expected context.Canceled, got %v", gotErr)
 		}
 	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Devices(context.Background()) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
+
+	t.Run("DevicesWithOptions with filters", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Verify query parameters are passed
+			if r.URL.Query().Get("capability") != "switch" {
+				t.Errorf("expected capability=switch, got %s", r.URL.Query().Get("capability"))
+			}
+			if r.URL.Query().Get("locationId") != "loc-1" {
+				t.Errorf("expected locationId=loc-1, got %s", r.URL.Query().Get("locationId"))
+			}
+			resp := PagedDevices{
+				Items: []Device{{DeviceID: "device-1"}},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		opts := &ListDevicesOptions{
+			Capability: []string{"switch"},
+			LocationID: []string{"loc-1"},
+		}
+		var devices []Device
+		for device, err := range client.DevicesWithOptions(context.Background(), opts) {
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			devices = append(devices, device)
+		}
+		if len(devices) != 1 {
+			t.Errorf("got %d devices, want 1", len(devices))
+		}
+	})
+
+	t.Run("DevicesWithOptions handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		opts := &ListDevicesOptions{Max: 50}
+		for _, err := range client.DevicesWithOptions(context.Background(), opts) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
 }
 
 func TestClient_LocationsIterator(t *testing.T) {
@@ -489,6 +554,34 @@ func TestClient_LocationsIterator(t *testing.T) {
 		}
 		if len(locations) != 2 {
 			t.Errorf("got %d locations, want 2", len(locations))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.Locations(ctx) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Locations(context.Background()) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
 		}
 	})
 }
@@ -808,6 +901,34 @@ func TestClient_ChannelsIterator(t *testing.T) {
 			t.Errorf("got %d channels, want 2", len(channels))
 		}
 	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.Channels(ctx, nil) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Channels(context.Background(), nil) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
 }
 
 func TestClient_DriversIterator(t *testing.T) {
@@ -835,6 +956,37 @@ func TestClient_DriversIterator(t *testing.T) {
 		}
 		if len(drivers) != 2 {
 			t.Errorf("got %d drivers, want 2", len(drivers))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		client, _ := NewClient("token")
+		for _, err := range client.Drivers(ctx) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			if err != context.Canceled {
+				t.Errorf("expected context.Canceled, got: %v", err)
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Drivers(context.Background()) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
 		}
 	})
 }
@@ -866,6 +1018,34 @@ func TestClient_SchemaAppsIterator(t *testing.T) {
 			t.Errorf("got %d apps, want 2", len(apps))
 		}
 	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.SchemaApps(ctx, false) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.SchemaApps(context.Background(), false) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
 }
 
 func TestClient_InstalledAppsIterator(t *testing.T) {
@@ -893,6 +1073,34 @@ func TestClient_InstalledAppsIterator(t *testing.T) {
 		}
 		if len(apps) != 2 {
 			t.Errorf("got %d apps, want 2", len(apps))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.InstalledApps(ctx, "loc-1") {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.InstalledApps(context.Background(), "loc-1") {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
 		}
 	})
 }
@@ -1020,6 +1228,34 @@ func TestClient_CapabilitiesIterator(t *testing.T) {
 			t.Errorf("got %d capabilities, want 2", len(caps))
 		}
 	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.Capabilities(ctx) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Capabilities(context.Background()) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
 }
 
 func TestClient_DevicePreferencesIterator(t *testing.T) {
@@ -1047,6 +1283,34 @@ func TestClient_DevicePreferencesIterator(t *testing.T) {
 		}
 		if len(prefs) != 2 {
 			t.Errorf("got %d preferences, want 2", len(prefs))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.DevicePreferences(ctx, "") {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.DevicePreferences(context.Background(), "") {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
 		}
 	})
 }
@@ -1078,6 +1342,34 @@ func TestClient_OrganizationsIterator(t *testing.T) {
 			t.Errorf("got %d organizations, want 2", len(orgs))
 		}
 	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.Organizations(ctx) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.Organizations(context.Background()) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
 }
 
 func TestClient_InstalledSchemaAppsIterator(t *testing.T) {
@@ -1105,6 +1397,34 @@ func TestClient_InstalledSchemaAppsIterator(t *testing.T) {
 		}
 		if len(apps) != 2 {
 			t.Errorf("got %d apps, want 2", len(apps))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.InstalledSchemaApps(ctx, "loc-1") {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.InstalledSchemaApps(context.Background(), "loc-1") {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
 		}
 	})
 }
@@ -1146,6 +1466,75 @@ func TestClient_DeviceEventsIterator(t *testing.T) {
 		}
 		if len(events) != 3 {
 			t.Errorf("got %d events, want 3", len(events))
+		}
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		client, _ := NewClient("token")
+		for _, err := range client.DeviceEvents(ctx, "device-1", nil) {
+			if err == nil {
+				t.Fatal("expected context error")
+			}
+			break
+		}
+	})
+
+	t.Run("handles server error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		for _, err := range client.DeviceEvents(context.Background(), "device-1", nil) {
+			if err == nil {
+				t.Fatal("expected error from server")
+			}
+			break
+		}
+	})
+
+	t.Run("rejects empty device ID", func(t *testing.T) {
+		client, _ := NewClient("token")
+		for _, err := range client.DeviceEvents(context.Background(), "", nil) {
+			if err != ErrEmptyDeviceID {
+				t.Errorf("expected ErrEmptyDeviceID, got %v", err)
+			}
+			break
+		}
+	})
+
+	t.Run("with history options", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Verify before param is passed
+			if r.URL.Query().Get("before") == "" {
+				t.Error("expected before parameter")
+			}
+			resp := PagedEvents{
+				Items: []DeviceEvent{{DeviceID: "device-1", Capability: "switch"}},
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client, _ := NewClient("token", WithBaseURL(server.URL))
+		beforeTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		opts := &HistoryOptions{
+			Before: &beforeTime,
+			Max:    100,
+		}
+		var events []DeviceEvent
+		for ev, err := range client.DeviceEvents(context.Background(), "device-1", opts) {
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			events = append(events, ev)
+		}
+		if len(events) != 1 {
+			t.Errorf("got %d events, want 1", len(events))
 		}
 	})
 }

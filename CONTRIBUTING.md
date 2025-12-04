@@ -173,6 +173,46 @@ The library aims for complete SmartThings API v1 coverage. When adding new endpo
 3. Add tests with mocked HTTP responses
 4. Update README.md if it's a major feature
 
+## Versioning and Breaking Changes
+
+This project follows [Semantic Versioning](https://semver.org/):
+
+- **MAJOR** version for incompatible API changes
+- **MINOR** version for backwards-compatible functionality additions
+- **PATCH** version for backwards-compatible bug fixes
+
+### What Is a Breaking Change
+
+1. **Removed** public functions, types, or constants
+2. **Changed** function signatures (parameters, return types)
+3. **Changed** struct field types or removed public fields
+4. **Changed** behavior in a way that could cause existing code to fail
+
+### What Is NOT a Breaking Change
+
+- Adding new public functions, types, or methods
+- Adding new optional parameters via functional options
+- Adding new fields to structs (unless they affect JSON marshaling)
+- Performance improvements
+- Bug fixes (even if they change behavior to match documentation)
+- Internal/unexported changes
+
+### Deprecation Process
+
+When deprecating functionality:
+
+1. Add a `// Deprecated:` comment with the deprecation reason and alternative
+2. Keep deprecated functionality for at least one MINOR version
+3. Remove deprecated functionality only in the next MAJOR version
+4. Document all deprecations in the CHANGELOG
+
+Example:
+```go
+// Deprecated: Use NewClientWithOptions instead. This function will be
+// removed in v2.0.0.
+func OldFunction() { ... }
+```
+
 ## Release Process
 
 Releases are automated via GitHub Actions when a tag is pushed:

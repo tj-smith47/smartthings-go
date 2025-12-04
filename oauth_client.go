@@ -55,6 +55,7 @@ func NewOAuthClient(cfg *OAuthConfig, store TokenStore, opts ...Option) (*OAuthC
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
 			DisableKeepAlives:   false,
+			ForceAttemptHTTP2:   true,
 		},
 	}
 

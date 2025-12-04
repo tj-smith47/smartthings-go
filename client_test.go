@@ -247,7 +247,7 @@ func TestClient_handleError(t *testing.T) {
 
 	t.Run("parse error response", func(t *testing.T) {
 		body := []byte(`{"requestId":"abc","error":{"code":"BadRequest","message":"Invalid input"}}`)
-		err := client.handleError(400, body)
+		err := client.handleError(400, body, http.Header{})
 		apiErr, ok := err.(*APIError)
 		if !ok {
 			t.Fatalf("expected *APIError, got %T", err)
@@ -262,7 +262,7 @@ func TestClient_handleError(t *testing.T) {
 
 	t.Run("invalid JSON falls back to body", func(t *testing.T) {
 		body := []byte("not json")
-		err := client.handleError(400, body)
+		err := client.handleError(400, body, http.Header{})
 		apiErr, ok := err.(*APIError)
 		if !ok {
 			t.Fatalf("expected *APIError, got %T", err)

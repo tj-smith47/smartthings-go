@@ -70,22 +70,36 @@ type installedDriverListResponse struct {
 }
 
 // GetHub returns a hub by ID.
+// This uses the standard devices endpoint since /hubdevices/{id} is not available.
 func (c *Client) GetHub(ctx context.Context, hubID string) (*Hub, error) {
 	if hubID == "" {
 		return nil, ErrEmptyHubID
 	}
 
-	data, err := c.get(ctx, "/hubdevices/"+hubID)
+	// Use GetDevice since /hubdevices/{id} doesn't exist
+	device, err := c.GetDevice(ctx, hubID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetHub: get device: %w", err)
 	}
 
-	var hub Hub
-	if err := json.Unmarshal(data, &hub); err != nil {
-		return nil, fmt.Errorf("GetHub: parse response: %w (body: %s)", err, truncatePreview(data))
+	// Verify it's actually a hub
+	if device.Type != DeviceTypeHUB {
+		return nil, fmt.Errorf("GetHub: device %s is not a hub (type: %s)", hubID, device.Type)
 	}
 
-	return &hub, nil
+	hub := &Hub{
+		HubID: device.DeviceID,
+		Name:  device.Label,
+	}
+	if hub.Name == "" {
+		hub.Name = device.Name
+	}
+	if device.Hub != nil {
+		hub.EUI = device.Hub.HubEUI
+		hub.FirmwareVersion = device.Hub.FirmwareVersion
+	}
+
+	return hub, nil
 }
 
 // GetHubCharacteristics returns detailed characteristics for a hub.
@@ -313,42 +327,83 @@ type hubListResponse struct {
 }
 
 // ListHubs returns all hubs associated with the account.
+// This works by listing all devices and filtering for those with type "HUB".
 func (c *Client) ListHubs(ctx context.Context) ([]Hub, error) {
-	data, err := c.get(ctx, "/hubdevices")
+	// Use ListDevicesWithOptions to filter by HUB type
+	paged, err := c.ListDevicesWithOptions(ctx, &ListDevicesOptions{
+		Type: string(DeviceTypeHUB),
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListHubs: list devices: %w", err)
 	}
 
-	var resp hubListResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("ListHubs: parse response: %w (body: %s)", err, truncatePreview(data))
+	// Convert devices to Hub structs
+	hubs := make([]Hub, 0, len(paged.Items))
+	for _, device := range paged.Items {
+		hub := Hub{
+			HubID: device.DeviceID,
+			Name:  device.Label,
+		}
+		if hub.Name == "" {
+			hub.Name = device.Name
+		}
+		// Extract additional info from the Hub field if available
+		if device.Hub != nil {
+			hub.EUI = device.Hub.HubEUI
+			hub.FirmwareVersion = device.Hub.FirmwareVersion
+		}
+		hubs = append(hubs, hub)
 	}
 
-	return resp.Items, nil
+	return hubs, nil
 }
 
-// GetHubWithLocalIP returns a hub with its local IP address by fetching hub data.
+// GetHubWithLocalIP returns a hub with its local IP address by fetching the device details.
 // The hub device ID can be found by listing devices and filtering for type "HUB".
+// The local IP is in device.hub.hubData.localIP, NOT in the device status.
 func (c *Client) GetHubWithLocalIP(ctx context.Context, hubID string) (*Hub, *HubData, error) {
 	if hubID == "" {
 		return nil, nil, ErrEmptyHubID
 	}
 
-	// Get basic hub info
-	hub, err := c.GetHub(ctx, hubID)
+	// Get device details - the hub info is embedded in the device response
+	device, err := c.GetDevice(ctx, hubID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("get hub device: %w", err)
 	}
 
-	// Get device status which contains hubData with localIP
-	status, err := c.GetDeviceStatusAllComponents(ctx, hubID)
-	if err != nil {
-		return hub, nil, nil // Return hub without hubData if status fails
+	// Verify it's actually a hub
+	if device.Type != DeviceTypeHUB {
+		return nil, nil, fmt.Errorf("device %s is not a hub (type: %s)", hubID, device.Type)
 	}
 
-	hubData, err := ExtractHubData(status)
-	if err != nil {
-		return hub, nil, err
+	// Build Hub struct from device
+	hub := &Hub{
+		HubID: device.DeviceID,
+		Name:  device.Label,
+	}
+	if hub.Name == "" {
+		hub.Name = device.Name
+	}
+
+	// Extract hub data from device.Hub field
+	var hubData *HubData
+	if device.Hub != nil {
+		hub.EUI = device.Hub.HubEUI
+		hub.FirmwareVersion = device.Hub.FirmwareVersion
+
+		// The local IP is in device.hub.hubData
+		if device.Hub.HubData != nil {
+			hubData = &HubData{
+				LocalIP:                 device.Hub.HubData.LocalIP,
+				MacAddress:              device.Hub.HubData.MacAddress,
+				HardwareType:            device.Hub.HubData.HardwareType,
+				HubLocalAPIAvailability: device.Hub.HubData.HubLocalAPIAvailability,
+				ZigbeeEUI:               device.Hub.HubData.ZigbeeEUI,
+				ZWaveRegion:             device.Hub.HubData.ZWaveRegion,
+				ZWaveHomeID:             device.Hub.HubData.ZWaveHomeID,
+			}
+		}
 	}
 
 	return hub, hubData, nil

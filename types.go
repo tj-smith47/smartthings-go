@@ -11,8 +11,8 @@ type DeviceType string
 const (
 	DeviceTypeDTH         DeviceType = "DTH"
 	DeviceTypeEndpointApp DeviceType = "ENDPOINT_APP"
+	DeviceTypeHUB         DeviceType = "HUB"
 	DeviceTypeViper       DeviceType = "VIPER"
-	DeviceTypeHub         DeviceType = "HUB"
 	DeviceTypeBLE         DeviceType = "BLE"
 	DeviceTypeBLED2D      DeviceType = "BLE_D2D"
 	DeviceTypeMobile      DeviceType = "MOBILE"
@@ -39,10 +39,44 @@ type Device struct {
 	App                    *DeviceApp       `json:"app,omitempty"`
 	OCF                    *OCFDeviceInfo   `json:"ocf,omitempty"`
 	Viper                  *ViperDeviceInfo `json:"viper,omitempty"`
+	Hub                    *HubDeviceInfo   `json:"hub,omitempty"`
 	DeviceManufacturerCode string           `json:"deviceManufacturerCode,omitempty"`
 	CreateTime             string           `json:"createTime,omitempty"`
 	RestrictionTier        int              `json:"restrictionTier,omitempty"`
 	Allowed                []string         `json:"allowed,omitempty"`
+}
+
+// HubDeviceInfo contains hub-specific information embedded in a device response.
+// This is present when the device type is "HUB".
+type HubDeviceInfo struct {
+	HubEUI          string          `json:"hubEui,omitempty"`
+	FirmwareVersion string          `json:"firmwareVersion,omitempty"`
+	HubData         *HubDeviceData  `json:"hubData,omitempty"`
+	HubDrivers      []HubDriverInfo `json:"hubDrivers,omitempty"`
+}
+
+// HubDeviceData contains detailed hub data from the device response.
+type HubDeviceData struct {
+	LocalIP                 string `json:"localIP,omitempty"`
+	MacAddress              string `json:"macAddress,omitempty"`
+	HardwareType            string `json:"hardwareType,omitempty"`
+	HubLocalAPIAvailability string `json:"hubLocalApiAvailability,omitempty"`
+	SerialNumber            string `json:"serialNumber,omitempty"`
+	ZigbeeEUI               string `json:"zigbeeEui,omitempty"`
+	ZigbeeChannel           string `json:"zigbeeChannel,omitempty"`
+	ZigbeeNodeID            string `json:"zigbeeNodeID,omitempty"`
+	ZigbeePanID             string `json:"zigbeePanId,omitempty"`
+	ZWaveRegion             string `json:"zwaveRegion,omitempty"`
+	ZWaveSUCID              string `json:"zwaveSucId,omitempty"`
+	ZWaveHomeID             string `json:"zwaveHomeId,omitempty"`
+	ZWaveNodeID             string `json:"zwaveNodeID,omitempty"`
+}
+
+// HubDriverInfo represents a driver installed on a hub.
+type HubDriverInfo struct {
+	DriverID      string `json:"driverId"`
+	DriverVersion string `json:"driverVersion,omitempty"`
+	ChannelID     string `json:"channelId,omitempty"`
 }
 
 // ChildDevice represents a reference to a child device.

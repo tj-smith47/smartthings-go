@@ -598,6 +598,72 @@ func extractChildLockEnabled(status Status) bool {
 	return false
 }
 
+// extractSupportedCyclesAndOptions extracts cycle codes and the union of all supported
+// options from the nested supportedCycles structure used by Samsung CE appliances.
+// The structure is: supportedCycles.value[].cycle and supportedCycles.value[].supportedOptions
+func extractSupportedCyclesAndOptions(cycleCap map[string]any) (cycles []string, options map[string][]string) {
+	options = make(map[string][]string)
+	optionSets := make(map[string]map[string]bool) // For deduplication
+
+	arr, ok := GetArray(cycleCap, "supportedCycles", "value")
+	if !ok {
+		return nil, options
+	}
+
+	for _, item := range arr {
+		cycleObj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		// Extract cycle code
+		if cycleCode, ok := cycleObj["cycle"].(string); ok && cycleCode != "" {
+			cycles = append(cycles, cycleCode)
+		}
+
+		// Extract supported options for this cycle
+		suppOpts, ok := cycleObj["supportedOptions"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		// Process each option type (soilLevel, spinLevel, waterTemperature, dryingLevel, etc.)
+		for optName, optData := range suppOpts {
+			optMap, ok := optData.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			// Get the options array
+			optArr, ok := optMap["options"].([]any)
+			if !ok {
+				continue
+			}
+
+			// Initialize set if needed
+			if optionSets[optName] == nil {
+				optionSets[optName] = make(map[string]bool)
+			}
+
+			// Add all options to the set
+			for _, opt := range optArr {
+				if optStr, ok := opt.(string); ok && optStr != "" {
+					optionSets[optName][optStr] = true
+				}
+			}
+		}
+	}
+
+	// Convert sets to slices
+	for optName, optSet := range optionSets {
+		for opt := range optSet {
+			options[optName] = append(options[optName], opt)
+		}
+	}
+
+	return cycles, options
+}
+
 // ExtractWasherDetailedStatus extracts comprehensive washer status.
 // This includes operating state, current settings, supported options, and
 // the critical remoteControlEnabled flag for the UI warning banner.
@@ -636,53 +702,83 @@ func ExtractWasherDetailedStatus(status Status) *WasherDetailedStatus {
 		result.CurrentCycle = value
 	}
 
-	// Extract supported cycles
-	if arr, ok := GetArray(status, "samsungce.washerCycle", "supportedWasherCycle", "value"); ok {
-		result.SupportedCycles = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "custom.washerCycle", "supportedWasherCycle", "value"); ok {
-		result.SupportedCycles = ToStringSlice(arr)
+	// Extract supported cycles and options from nested supportedCycles structure
+	var cycleCap map[string]any
+	var ok bool
+	if cycleCap, ok = GetMap(status, "samsungce.washerCycle"); !ok {
+		cycleCap, _ = GetMap(status, "custom.washerCycle")
+	}
+	if cycleCap != nil {
+		cycles, options := extractSupportedCyclesAndOptions(cycleCap)
+		if len(cycles) > 0 {
+			result.SupportedCycles = cycles
+		}
+		if opts := options["waterTemperature"]; len(opts) > 0 {
+			result.SupportedWaterTemps = opts
+		}
+		if opts := options["spinLevel"]; len(opts) > 0 {
+			result.SupportedSpinLevels = opts
+		}
+		if opts := options["soilLevel"]; len(opts) > 0 {
+			result.SupportedSoilLevels = opts
+		}
 	}
 
-	// Extract water temperature
+	// Fallback: try legacy simple array format if nested extraction found nothing
+	if len(result.SupportedCycles) == 0 {
+		if arr, ok := GetArray(status, "samsungce.washerCycle", "supportedWasherCycle", "value"); ok {
+			result.SupportedCycles = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "custom.washerCycle", "supportedWasherCycle", "value"); ok {
+			result.SupportedCycles = ToStringSlice(arr)
+		}
+	}
+
+	// Extract water temperature (current value)
 	if value, ok := GetString(status, "custom.washerWaterTemperature", "washerWaterTemperature", "value"); ok {
 		result.WaterTemperature = value
 	} else if value, ok := GetString(status, "samsungce.washerWaterTemperature", "washerWaterTemperature", "value"); ok {
 		result.WaterTemperature = value
 	}
 
-	// Extract supported water temperatures
-	if arr, ok := GetArray(status, "custom.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
-		result.SupportedWaterTemps = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "samsungce.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
-		result.SupportedWaterTemps = ToStringSlice(arr)
+	// Fallback: try legacy simple array format for water temps
+	if len(result.SupportedWaterTemps) == 0 {
+		if arr, ok := GetArray(status, "custom.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
+			result.SupportedWaterTemps = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "samsungce.washerWaterTemperature", "supportedWasherWaterTemperature", "value"); ok {
+			result.SupportedWaterTemps = ToStringSlice(arr)
+		}
 	}
 
-	// Extract spin level
+	// Extract spin level (current value)
 	if value, ok := GetString(status, "custom.washerSpinLevel", "washerSpinLevel", "value"); ok {
 		result.SpinLevel = value
 	} else if value, ok := GetString(status, "samsungce.washerSpinLevel", "washerSpinLevel", "value"); ok {
 		result.SpinLevel = value
 	}
 
-	// Extract supported spin levels
-	if arr, ok := GetArray(status, "custom.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
-		result.SupportedSpinLevels = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "samsungce.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
-		result.SupportedSpinLevels = ToStringSlice(arr)
+	// Fallback: try legacy simple array format for spin levels
+	if len(result.SupportedSpinLevels) == 0 {
+		if arr, ok := GetArray(status, "custom.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
+			result.SupportedSpinLevels = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "samsungce.washerSpinLevel", "supportedWasherSpinLevel", "value"); ok {
+			result.SupportedSpinLevels = ToStringSlice(arr)
+		}
 	}
 
-	// Extract soil level
+	// Extract soil level (current value)
 	if value, ok := GetString(status, "custom.washerSoilLevel", "washerSoilLevel", "value"); ok {
 		result.SoilLevel = value
 	} else if value, ok := GetString(status, "samsungce.washerSoilLevel", "washerSoilLevel", "value"); ok {
 		result.SoilLevel = value
 	}
 
-	// Extract supported soil levels
-	if arr, ok := GetArray(status, "custom.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
-		result.SupportedSoilLevels = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "samsungce.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
-		result.SupportedSoilLevels = ToStringSlice(arr)
+	// Fallback: try legacy simple array format for soil levels
+	if len(result.SupportedSoilLevels) == 0 {
+		if arr, ok := GetArray(status, "custom.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
+			result.SupportedSoilLevels = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "samsungce.washerSoilLevel", "supportedWasherSoilLevel", "value"); ok {
+			result.SupportedSoilLevels = ToStringSlice(arr)
+		}
 	}
 
 	return result
@@ -724,25 +820,48 @@ func ExtractDryerDetailedStatus(status Status) *DryerDetailedStatus {
 		result.CurrentCycle = value
 	}
 
-	// Extract supported cycles
-	if arr, ok := GetArray(status, "samsungce.dryerCycle", "supportedDryerCycle", "value"); ok {
-		result.SupportedCycles = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "custom.dryerCycle", "supportedDryerCycle", "value"); ok {
-		result.SupportedCycles = ToStringSlice(arr)
+	// Extract supported cycles and options from nested supportedCycles structure
+	var cycleCap map[string]any
+	var ok bool
+	if cycleCap, ok = GetMap(status, "samsungce.dryerCycle"); !ok {
+		cycleCap, _ = GetMap(status, "custom.dryerCycle")
+	}
+	if cycleCap != nil {
+		cycles, options := extractSupportedCyclesAndOptions(cycleCap)
+		if len(cycles) > 0 {
+			result.SupportedCycles = cycles
+		}
+		if opts := options["dryingTemperature"]; len(opts) > 0 {
+			result.SupportedTemperatures = opts
+		}
+		if opts := options["dryingLevel"]; len(opts) > 0 {
+			result.SupportedDryingLevels = opts
+		}
 	}
 
-	// Extract drying temperature
+	// Fallback: try legacy simple array format if nested extraction found nothing
+	if len(result.SupportedCycles) == 0 {
+		if arr, ok := GetArray(status, "samsungce.dryerCycle", "supportedDryerCycle", "value"); ok {
+			result.SupportedCycles = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "custom.dryerCycle", "supportedDryerCycle", "value"); ok {
+			result.SupportedCycles = ToStringSlice(arr)
+		}
+	}
+
+	// Extract drying temperature (current value)
 	if value, ok := GetString(status, "samsungce.dryerDryingTemperature", "dryingTemperature", "value"); ok {
 		result.DryingTemperature = value
 	} else if value, ok := GetString(status, "custom.dryerDryingTemperature", "dryingTemperature", "value"); ok {
 		result.DryingTemperature = value
 	}
 
-	// Extract supported temperatures
-	if arr, ok := GetArray(status, "samsungce.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
-		result.SupportedTemperatures = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "custom.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
-		result.SupportedTemperatures = ToStringSlice(arr)
+	// Fallback: try legacy simple array format for temperatures
+	if len(result.SupportedTemperatures) == 0 {
+		if arr, ok := GetArray(status, "samsungce.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
+			result.SupportedTemperatures = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "custom.dryerDryingTemperature", "supportedDryingTemperature", "value"); ok {
+			result.SupportedTemperatures = ToStringSlice(arr)
+		}
 	}
 
 	// Extract drying level (wrinkleFree, normal, more, less)
@@ -752,11 +871,13 @@ func ExtractDryerDetailedStatus(status Status) *DryerDetailedStatus {
 		result.DryingLevel = value
 	}
 
-	// Extract supported drying levels
-	if arr, ok := GetArray(status, "samsungce.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
-		result.SupportedDryingLevels = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "custom.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
-		result.SupportedDryingLevels = ToStringSlice(arr)
+	// Fallback: try legacy simple array format for drying levels
+	if len(result.SupportedDryingLevels) == 0 {
+		if arr, ok := GetArray(status, "samsungce.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
+			result.SupportedDryingLevels = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "custom.dryerDryingLevel", "supportedDryingLevel", "value"); ok {
+			result.SupportedDryingLevels = ToStringSlice(arr)
+		}
 	}
 
 	// Extract drying time if set
@@ -800,11 +921,20 @@ func ExtractDishwasherDetailedStatus(status Status) *DishwasherDetailedStatus {
 		result.CurrentCourse = value
 	}
 
-	// Extract supported courses
-	if arr, ok := GetArray(status, "samsungce.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+	// Extract supported courses (dishwasher uses simple array format: supportedCourses)
+	if arr, ok := GetArray(status, "samsungce.dishwasherWashingCourse", "supportedCourses", "value"); ok {
 		result.SupportedCourses = ToStringSlice(arr)
-	} else if arr, ok := GetArray(status, "custom.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+	} else if arr, ok := GetArray(status, "custom.dishwasherWashingCourse", "supportedCourses", "value"); ok {
 		result.SupportedCourses = ToStringSlice(arr)
+	}
+
+	// Fallback: try legacy format (supportedWashingCourse)
+	if len(result.SupportedCourses) == 0 {
+		if arr, ok := GetArray(status, "samsungce.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+			result.SupportedCourses = ToStringSlice(arr)
+		} else if arr, ok := GetArray(status, "custom.dishwasherWashingCourse", "supportedWashingCourse", "value"); ok {
+			result.SupportedCourses = ToStringSlice(arr)
+		}
 	}
 
 	return result

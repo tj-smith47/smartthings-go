@@ -312,7 +312,7 @@ func (c *TVLocalClient) readLoop() {
 				return
 			default:
 				if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-					c.errors <- fmt.Errorf("read frame: %w", err)
+					c.trySendError(fmt.Errorf("read frame: %w", err))
 				}
 				return
 			}
@@ -399,7 +399,7 @@ func (c *TVLocalClient) readFrame() (opcode byte, payload []byte, err error) {
 func (c *TVLocalClient) handleTextMessage(payload []byte) {
 	var resp tvLocalResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
-		c.errors <- fmt.Errorf("parse message: %w", err)
+		c.trySendError(fmt.Errorf("parse message: %w", err))
 		return
 	}
 
@@ -413,6 +413,8 @@ func (c *TVLocalClient) handleTextMessage(payload []byte) {
 	}
 
 	select {
+	case <-c.done:
+		// Connection closed, don't send
 	case c.responses <- resp:
 	default:
 		// Buffer full, drop response
@@ -467,7 +469,21 @@ func (c *TVLocalClient) sendFrame(opcode byte, payload []byte) error {
 // sendPong sends a pong frame in response to a ping.
 func (c *TVLocalClient) sendPong(payload []byte) {
 	if err := c.sendFrame(wsOpcodePong, payload); err != nil {
-		c.errors <- fmt.Errorf("send pong: %w", err)
+		c.trySendError(fmt.Errorf("send pong: %w", err))
+	}
+}
+
+// trySendError safely sends an error to the errors channel.
+// It returns false if the connection is closed (done channel is closed).
+func (c *TVLocalClient) trySendError(err error) bool {
+	select {
+	case <-c.done:
+		return false
+	case c.errors <- err:
+		return true
+	default:
+		// Buffer full, drop error
+		return false
 	}
 }
 
@@ -486,13 +502,13 @@ func (c *TVLocalClient) pingLoop() {
 			c.pongMu.RUnlock()
 
 			if time.Since(lastPong) > 90*time.Second {
-				c.errors <- errors.New("connection timeout: no pong received")
+				c.trySendError(errors.New("connection timeout: no pong received"))
 				c.Close()
 				return
 			}
 
 			if err := c.sendFrame(wsOpcodePing, nil); err != nil {
-				c.errors <- fmt.Errorf("send ping: %w", err)
+				c.trySendError(fmt.Errorf("send ping: %w", err))
 				return
 			}
 		}

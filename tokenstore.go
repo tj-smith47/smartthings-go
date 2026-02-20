@@ -44,15 +44,32 @@ func (f *FileTokenStore) SaveTokens(ctx context.Context, tokens *TokenResponse) 
 		return fmt.Errorf("failed to marshal tokens: %w", err)
 	}
 
-	// Write to a temporary file first, then rename for atomicity
-	tmpFile := f.filepath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
+	// Write to a unique temporary file first, then rename for atomicity.
+	// Using a unique temp file prevents corruption when multiple processes
+	// (e.g. multiple pods sharing an RWX PVC) write concurrently.
+	tmpFile, err := os.CreateTemp(dir, ".smartthings-tokens-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp token file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to write token file: %w", err)
 	}
+	if err := tmpFile.Chmod(0600); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to set token file permissions: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp token file: %w", err)
+	}
 
-	if err := os.Rename(tmpFile, f.filepath); err != nil {
-		// Clean up temp file on failure
-		os.Remove(tmpFile)
+	if err := os.Rename(tmpPath, f.filepath); err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to save token file: %w", err)
 	}
 
